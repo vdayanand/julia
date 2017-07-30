@@ -1276,3 +1276,10 @@ end
 @test parse("(::A)") == Expr(Symbol("::"), :A)
 @test_throws ParseError parse("(::, 1)")
 @test_throws ParseError parse("(1, ::)")
+
+# issue #23014
+@test parse("Base.:==") == parse("Base.:(==)")
+let
+    thrown = @test_throws ParseError parse(":=")
+    @test thrown.value.msg == "unexpected \"=\""
+end

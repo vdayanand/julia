@@ -92,6 +92,8 @@ This section lists changes that do not have deprecation warnings.
   * Worker-worker connections are setup lazily for an `:all_to_all` topology. Use keyword
     arg `lazy=false` to force all connections to be setup during a `addprocs` call. ([#22814])
 
+  * `:=` is no longer parsed as an operator ([#23014]).
+
 Library improvements
 --------------------
 
@@ -1049,3 +1051,4 @@ Command-line option changes
 [#22709]: https://github.com/JuliaLang/julia/issues/22709
 [#22712]: https://github.com/JuliaLang/julia/issues/22712
 [#22732]: https://github.com/JuliaLang/julia/issues/22732
+[#23014]: https://github.com/JuliaLang/julia/issues/23014
