@@ -1001,6 +1001,8 @@ extern jl_sym_t *isdefined_sym;
 extern jl_sym_t *nospecialize_sym;
 extern jl_sym_t *boundscheck_sym;
 extern jl_sym_t *gc_preserve_begin_sym; extern jl_sym_t *gc_preserve_end_sym;
+extern jl_sym_t *generator_sym;
+extern jl_sym_t *generated_only_sym;
 
 void jl_register_fptrs(uint64_t sysimage_base, const char *base, const int32_t *offsets,
                        jl_method_instance_t **linfos, size_t n);
