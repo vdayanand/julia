@@ -112,13 +112,12 @@ end
 
 mutable struct InferenceState
     sp::SimpleVector     # static parameters
-    label_counter::Int   # index of the current highest label for this function
     mod::Module
     currpc::LineNum
 
     # info on the state of inference and the linfo
     params::InferenceParams
-    linfo::MethodInstance # used here for the tuple (specTypes, env, Method)
+    linfo::MethodInstance # used here for the tuple (specTypes, env, Method) and world-age validity
     src::CodeInfo
     min_valid::UInt
     max_valid::UInt
@@ -159,7 +158,6 @@ mutable struct InferenceState
     function InferenceState(linfo::MethodInstance, src::CodeInfo,
                             optimize::Bool, cached::Bool, params::InferenceParams)
         code = src.code::Array{Any,1}
-        nl = label_counter(code) + 1
         toplevel = !isa(linfo.def, Method)
 
         if !toplevel && isempty(linfo.sparam_vals) && !isempty(linfo.def.sparam_syms)
@@ -271,7 +269,7 @@ mutable struct InferenceState
             max_valid = typemin(UInt)
         end
         frame = new(
-            sp, nl, inmodule, 0, params,
+            sp, inmodule, 0, params,
             linfo, src, min_valid, max_valid,
             nargs, s_types, s_edges,
             Union{}, W, 1, n,
@@ -305,6 +303,71 @@ end
 
 function get_staged(li::MethodInstance)
     return ccall(:jl_code_for_staged, Any, (Any,), li)::CodeInfo
+end
+
+
+mutable struct OptimizationState
+    linfo::MethodInstance
+    vararg_type_container #::Type
+    backedges::Vector{Any}
+    src::CodeInfo
+    mod::Module
+    nargs::Int
+    next_label::Int # index of the current highest label for this function
+    min_valid::UInt
+    max_valid::UInt
+    params::InferenceParams
+    function OptimizationState(frame::InferenceState)
+        s_edges = frame.stmt_edges[1]
+        if s_edges=== ()
+            s_edges = []
+            frame.stmt_edges[1] = s_edges
+        end
+        next_label = label_counter(frame.src.code) + 1
+        return new(frame.linfo, frame.vararg_type_container,
+                   s_edges::Vector{Any},
+                   frame.src, frame.mod, frame.nargs,
+                   next_label, frame.min_valid, frame.max_valid,
+                   frame.params)
+    end
+    function OptimizationState(linfo::MethodInstance, src::CodeInfo,
+                               params::InferenceParams)
+        # prepare src for running optimization passes
+        # if it isn't already
+        nssavalues = src.ssavaluetypes
+        if nssavalues isa Int
+            src.ssavaluetypes = Any[ Any for i = 1:nssavalues ]
+        end
+        if src.slottypes === nothing
+            nslots = length(src.slotnames)
+            src.slottypes = Any[ Any for i = 1:nslots ]
+        end
+        s_edges = []
+        # cache some useful state computations
+        toplevel = !isa(linfo.def, Method)
+        if !toplevel
+            meth = linfo.def
+            inmodule = meth.module
+            nargs = meth.nargs
+        else
+            inmodule = linfo.def::Module
+            nargs = 0
+        end
+        next_label = label_counter(src.code) + 1
+        vararg_type_container = nothing # if you want something more accurate, set it yourself :P
+        return new(linfo, vararg_type_container,
+                   s_edges::Vector{Any},
+                   src, inmodule, nargs,
+                   next_label,
+                   min_world(linfo), max_world(linfo),
+                   params)
+    end
+end
+
+function OptimizationState(linfo::MethodInstance, params::InferenceParams)
+    src = retrieve_code_info(linfo)
+    src === nothing && return nothing
+    return OptimizationState(linfo, src, params)
 end
 
 
@@ -371,8 +434,9 @@ function contains_is(itr, @nospecialize(x))
     return false
 end
 
-anymap(f::Function, a::Array{Any,1}) = Any[ f(a[i]) for i=1:length(a) ]
+anymap(f::Function, a::Array{Any,1}) = Any[ f(a[i]) for i in 1:length(a) ]
 
+_topmod(sv::OptimizationState) = _topmod(sv.mod)
 _topmod(sv::InferenceState) = _topmod(sv.mod)
 _topmod(m::Module) = ccall(:jl_base_relative_to, Any, (Any,), m)::Module
 
@@ -391,7 +455,7 @@ isknownlength(t::DataType) = !isvatuple(t) ||
 # t[n:end]
 tupletype_tail(@nospecialize(t), n) = Tuple{t.parameters[n:end]...}
 
-function is_specializable_vararg_slot(arg, sv::InferenceState)
+function is_specializable_vararg_slot(@nospecialize(arg), sv::Union{InferenceState, OptimizationState})
     return (isa(arg, Slot) && slot_id(arg) == sv.nargs &&
             isa(sv.vararg_type_container, DataType))
 end
@@ -2742,19 +2806,31 @@ end
 
 #### helper functions for typeinf initialization and looping ####
 
+# scan body for the value of the largest referenced label
 function label_counter(body::Vector{Any})
-    l = -1
+    l = 0
     for b in body
-        if isa(b, LabelNode) && b.label > l
-            l = b.label
+        label = 0
+        if isa(b, GotoNode)
+            label = b.label::Int
+        elseif isa(b, LabelNode)
+            label = b.label
+        elseif isa(b, Expr) && b.head == :gotoifnot
+            label = b.args[2]::Int
+        elseif isa(b, Expr) && b.head == :enter
+            label = b.args[1]::Int
+        end
+        if label > l
+            l = label
         end
     end
     return l
 end
-genlabel(sv) = LabelNode(sv.label_counter += 1)
+genlabel(sv::OptimizationState) = LabelNode(sv.next_label += 1)
 
-function get_label_map(body::Vector{Any}, sv::InferenceState)
-    labelmap = zeros(Int, sv.label_counter)
+function get_label_map(body::Vector{Any})
+    nlabels = label_counter(body)
+    labelmap = zeros(Int, nlabels)
     for i = 1:length(body)
         el = body[i]
         if isa(el, LabelNode)
@@ -2803,7 +2879,7 @@ function find_ssavalue_defs(body::Vector{Any}, nvals::Int)
     return defs
 end
 
-function newvar!(sv::InferenceState, @nospecialize(typ))
+function newvar!(sv::OptimizationState, @nospecialize(typ))
     id = length(sv.src.ssavaluetypes)
     push!(sv.src.ssavaluetypes, typ)
     return SSAValue(id)
@@ -2816,11 +2892,24 @@ coverage_enabled() = (JLOptions().code_coverage != 0)
 function update_valid_age!(min_valid::UInt, max_valid::UInt, sv::InferenceState)
     sv.min_valid = max(sv.min_valid, min_valid)
     sv.max_valid = min(sv.max_valid, max_valid)
-    @assert !isa(sv.linfo.def, Method) || !sv.cached || sv.min_valid <= sv.params.world <= sv.max_valid "invalid age range update"
+    @assert(!isa(sv.linfo.def, Method) ||
+            !sv.cached ||
+            sv.min_valid <= sv.params.world <= sv.max_valid,
+            "invalid age range update")
+    nothing
+end
+function update_valid_age!(min_valid::UInt, max_valid::UInt, sv::OptimizationState)
+    sv.min_valid = max(sv.min_valid, min_valid)
+    sv.max_valid = min(sv.max_valid, max_valid)
+    @assert(!isa(sv.linfo.def, Method) ||
+            (sv.min_valid == typemax(UInt) && sv.max_valid == typemin(UInt)) ||
+            sv.min_valid <= sv.params.world <= sv.max_valid,
+            "invalid age range update")
     nothing
 end
 update_valid_age!(edge::InferenceState, sv::InferenceState) = update_valid_age!(edge.min_valid, edge.max_valid, sv)
 update_valid_age!(li::MethodInstance, sv::InferenceState) = update_valid_age!(min_world(li), max_world(li), sv)
+update_valid_age!(li::MethodInstance, sv::OptimizationState) = update_valid_age!(min_world(li), max_world(li), sv)
 
 # temporarily accumulate our edges to later add as backedges in the callee
 function add_backedge!(li::MethodInstance, caller::InferenceState)
@@ -2829,6 +2918,13 @@ function add_backedge!(li::MethodInstance, caller::InferenceState)
         caller.stmt_edges[caller.currpc] = []
     end
     push!(caller.stmt_edges[caller.currpc], li)
+    update_valid_age!(li, caller)
+    nothing
+end
+
+function add_backedge!(li::MethodInstance, caller::OptimizationState)
+    isa(caller.linfo.def, Method) || return # don't add backedges to toplevel exprs
+    push!(caller.backedges, li)
     update_valid_age!(li, caller)
     nothing
 end
@@ -3252,7 +3348,6 @@ function typeinf_work(frame::InferenceState)
 end
 
 function typeinf(frame::InferenceState)
-
     typeinf_work(frame)
 
     # If the current frame is part of a cycle, solve the cycle before finishing
@@ -3365,40 +3460,44 @@ function optimize(me::InferenceState)
     type_annotate!(me)
 
     # run optimization passes on fulltree
-    force_noinline = false
+    force_noinline = true
     if me.optimize
+        opt = OptimizationState(me)
         # This pass is required for the AST to be valid in codegen
         # if any `SSAValue` is created by type inference. Ref issue #6068
         # This (and `reindex_labels!`) needs to be run for `!me.optimize`
         # if we start to create `SSAValue` in type inference when not
         # optimizing and use unoptimized IR in codegen.
-        gotoifnot_elim_pass!(me)
-        inlining_pass!(me)
+        gotoifnot_elim_pass!(opt)
+        inlining_pass!(opt)
         # probably not an ideal location for most of these steps,
         # but boundscheck elimination is not idempotent and needs to run as part of inlining
-        code = me.src.code::Array{Any,1}
-        meta_elim_pass!(code, me.src.propagate_inbounds, coverage_enabled())
+        code = opt.src.code::Array{Any,1}
+        meta_elim_pass!(code, opt.src.propagate_inbounds, coverage_enabled())
         # Clean up after inlining
-        gotoifnot_elim_pass!(me)
-        basic_dce_pass!(me)
-        void_use_elim_pass!(me)
+        gotoifnot_elim_pass!(opt)
+        basic_dce_pass!(opt)
+        void_use_elim_pass!(opt)
         # Compute escape information
         # and elide unnecessary allocations
-        alloc_elim_pass!(me)
-        getfield_elim_pass!(me)
+        alloc_elim_pass!(opt)
+        getfield_elim_pass!(opt)
         # Clean up for `alloc_elim_pass!` and `getfield_elim_pass!`
-        void_use_elim_pass!(me)
+        void_use_elim_pass!(opt)
         filter!(x -> x !== nothing, code)
         # Pop metadata before label reindexing
         force_noinline = popmeta!(code, :noinline)[1]
-        reindex_labels!(me)
+        reindex_labels!(opt)
+        me.min_valid = opt.min_valid
+        me.max_valid = opt.max_valid
     end
 
     # convert all type information into the form consumed by the code-generator
     widen_all_consts!(me.src)
 
-    if isa(me.bestguess, Const) || isconstType(me.bestguess)
-        me.const_ret = true
+    # compute inlining and other related properties
+    me.const_ret = (isa(me.bestguess, Const) || isconstType(me.bestguess))
+    if me.const_ret
         proven_pure = false
         # must be proven pure to use const_api; otherwise we might skip throwing errors
         # (issue #20704)
@@ -3471,7 +3570,6 @@ end
 # inference completed on `me`
 # update the MethodInstance and notify the edges
 function finish(me::InferenceState)
-    me.currpc = 1 # used by add_backedge
     if me.cached
         toplevel = !isa(me.linfo.def, Method)
         if !toplevel
@@ -3534,6 +3632,7 @@ function finish(me::InferenceState)
                 me.linfo = cache
             end
         end
+        me.linfo.inInference = false
     end
 
     # update all of the callers with real backedges by traversing the temporary list of backedges
@@ -3542,7 +3641,6 @@ function finish(me::InferenceState)
     end
 
     # finalize and record the linfo result
-    me.cached && (me.linfo.inInference = false)
     me.inferred = true
     nothing
 end
@@ -3648,7 +3746,7 @@ function type_annotate!(sv::InferenceState)
                 annotate_slot_load!(expr, st_i, sv, undefs)
             elseif isa(expr, Slot)
                 id = slot_id(expr)
-                if st_i[slot_id(expr)].undef
+                if st_i[id].undef
                     # find used-undef variables in statement position
                     undefs[id] = true
                 end
@@ -3960,7 +4058,7 @@ struct InvokeData
     texpr
 end
 
-function inline_as_constant(@nospecialize(val), argexprs, sv::InferenceState, @nospecialize(invoke_data))
+function inline_as_constant(@nospecialize(val), argexprs::Vector{Any}, sv::OptimizationState, @nospecialize(invoke_data))
     if invoke_data === nothing
         invoke_fexpr = nothing
         invoke_texpr = nothing
@@ -4000,7 +4098,7 @@ function countunionsplit(atypes)
     return nu
 end
 
-function get_spec_lambda(@nospecialize(atypes), sv, @nospecialize(invoke_data))
+function get_spec_lambda(@nospecialize(atypes), sv::OptimizationState, @nospecialize(invoke_data))
     if invoke_data === nothing
         return ccall(:jl_get_spec_lambda, Any, (Any, UInt), atypes, sv.params.world)
     else
@@ -4011,7 +4109,7 @@ function get_spec_lambda(@nospecialize(atypes), sv, @nospecialize(invoke_data))
     end
 end
 
-function linearize_args!(args::Vector{Any}, atypes::Vector{Any}, stmts::Vector{Any}, sv::InferenceState)
+function linearize_args!(args::Vector{Any}, atypes::Vector{Any}, stmts::Vector{Any}, sv::OptimizationState)
     # linearize the IR by moving the arguments to SSA position
     na = length(args)
     @assert length(atypes) == na
@@ -4030,7 +4128,7 @@ function linearize_args!(args::Vector{Any}, atypes::Vector{Any}, stmts::Vector{A
     return newargs
 end
 
-function invoke_NF(argexprs, @nospecialize(etype), atypes::Vector{Any}, sv::InferenceState,
+function invoke_NF(argexprs, @nospecialize(etype), atypes::Vector{Any}, sv::OptimizationState,
                    @nospecialize(atype_unlimited), @nospecialize(invoke_data))
     # converts a :call to :invoke
     nu = countunionsplit(atypes)
@@ -4160,7 +4258,7 @@ end
 # `ft` is the type of the function. `f` is the exact function if known, or else `nothing`.
 # `pending_stmts` is an array of statements from functions inlined so far, so
 # we can estimate the total size of the enclosing function after inlining.
-function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector{Any}, sv::InferenceState,
+function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector{Any}, sv::OptimizationState,
                     pending_stmts)
     argexprs = e.args
 
@@ -4406,15 +4504,17 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
     end
 
     # compute the return value
+    if isa(frame, InferenceState) && !frame.src.inferred
+        frame = nothing
+    end
     if isa(frame, InferenceState)
-        frame = frame::InferenceState
         linfo = frame.linfo
         inferred = frame.src
         if frame.const_api # handle like jlcall_api == 2
             if frame.inferred || !frame.cached
-                add_backedge!(frame.linfo, sv)
+                add_backedge!(linfo, sv)
             else
-                add_backedge!(frame, sv, 0)
+                add_backedge!(frame, sv)
             end
             if isa(frame.bestguess, Const)
                 inferred_const = (frame.bestguess::Const).val
@@ -4454,7 +4554,7 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
     if isa(frame, InferenceState) && !frame.inferred && frame.cached
         # in this case, the actual backedge linfo hasn't been computed
         # yet, but will be when inference on the frame finishes
-        add_backedge!(frame, sv, 0)
+        add_backedge!(frame, sv)
     else
         add_backedge!(linfo, sv)
     end
@@ -4542,27 +4642,24 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
 
     # make labels / goto statements unique
     # relocate inlining information
-    newlabels = zeros(Int,label_counter(body.args)+1)
+    newlabels = zeros(Int, label_counter(body.args))
     for i = 1:length(body.args)
         a = body.args[i]
-        if isa(a,LabelNode)
-            a = a::LabelNode
+        if isa(a, LabelNode)
             newlabel = genlabel(sv)
-            newlabels[a.label+1] = newlabel.label
+            newlabels[a.label] = newlabel.label
             body.args[i] = newlabel
         end
     end
     for i = 1:length(body.args)
         a = body.args[i]
-        if isa(a,GotoNode)
-            a = a::GotoNode
-            body.args[i] = GotoNode(newlabels[a.label+1])
-        elseif isa(a,Expr)
-            a = a::Expr
+        if isa(a, GotoNode)
+            body.args[i] = GotoNode(newlabels[a.label])
+        elseif isa(a, Expr)
             if a.head === :enter
-                a.args[1] = newlabels[a.args[1]+1]
+                a.args[1] = newlabels[a.args[1]::Int]
             elseif a.head === :gotoifnot
-                a.args[2] = newlabels[a.args[2]+1]
+                a.args[2] = newlabels[a.args[2]::Int]
             end
         end
     end
@@ -4808,13 +4905,13 @@ function mk_getfield(texpr, i, T)
     return e
 end
 
-function mk_tuplecall(args, sv::InferenceState)
+function mk_tuplecall(args, sv::OptimizationState)
     e = Expr(:call, top_tuple, args...)
     e.typ = tuple_tfunc(Tuple{Any[widenconst(exprtype(x, sv.src, sv.mod)) for x in args]...})
     return e
 end
 
-function inlining_pass!(sv::InferenceState)
+function inlining_pass!(sv::OptimizationState)
     eargs = sv.src.code
     i = 1
     stmtbuf = []
@@ -4836,7 +4933,7 @@ const corenumtype = Union{Int32, Int64, Float32, Float64}
 
 # return inlined replacement for `e`, inserting new needed statements
 # at index `ins` in `stmts`.
-function inlining_pass(e::Expr, sv::InferenceState, stmts, ins)
+function inlining_pass(e::Expr, sv::OptimizationState, stmts, ins)
     if e.head === :meta
         # ignore meta nodes
         return e
@@ -5312,7 +5409,7 @@ symequal(x::Slot    , y::Slot)     = x.id === y.id
 symequal(@nospecialize(x)     , @nospecialize(y))      = x === y
 
 function occurs_outside_getfield(@nospecialize(e), @nospecialize(sym),
-                                 sv::InferenceState, field_count::Int, @nospecialize(field_names))
+                                 sv::OptimizationState, field_count::Int, @nospecialize(field_names))
     if e === sym || (isa(e, Slot) && isa(sym, Slot) && slot_id(e) == slot_id(sym))
         return true
     end
@@ -5374,7 +5471,7 @@ function occurs_outside_getfield(@nospecialize(e), @nospecialize(sym),
     return false
 end
 
-function void_use_elim_pass!(sv::InferenceState)
+function void_use_elim_pass!(sv::OptimizationState)
     # Remove top level SSAValue and slots that is `!usedUndef`.
     # Also remove some `nothing` while we are at it....
     not_void_use = function (@nospecialize(ex),)
@@ -5659,19 +5756,19 @@ end
 
 # does the same job as alloc_elim_pass for allocations inline in getfields
 # TODO can probably be removed when we switch to a linear IR
-function getfield_elim_pass!(sv::InferenceState)
+function getfield_elim_pass!(sv::OptimizationState)
     body = sv.src.code
     nssavalues = length(sv.src.ssavaluetypes)
-    sv.ssavalue_defs = find_ssavalue_defs(body, nssavalues)
-    sv.ssavalue_uses = find_ssavalue_uses(body, nssavalues)
+    ssa_defs = find_ssavalue_defs(body, nssavalues)
+    ssa_uses = find_ssavalue_uses(body, nssavalues)
     for i = 1:length(body)
-        body[i] = _getfield_elim_pass!(body[i], sv)
+        body[i] = _getfield_elim_pass!(body[i], ssa_defs, ssa_uses, sv)
     end
 end
 
-function _getfield_elim_pass!(e::Expr, sv::InferenceState)
+function _getfield_elim_pass!(e::Expr, ssa_defs::Vector{LineNum}, ssa_uses::Vector{IntSet}, sv::OptimizationState)
     for i = 1:length(e.args)
-        e.args[i] = _getfield_elim_pass!(e.args[i], sv)
+        e.args[i] = _getfield_elim_pass!(e.args[i], ssa_defs, ssa_uses, sv)
     end
     if is_known_call(e, getfield, sv.src, sv.mod) && length(e.args)==3 &&
         (isa(e.args[3],Int) || isa(e.args[3],QuoteNode))
@@ -5680,11 +5777,11 @@ function _getfield_elim_pass!(e::Expr, sv::InferenceState)
         single_use = true
         while isa(e1, SSAValue)
             if single_use
-                if length(sv.ssavalue_uses[e1.id + 1]) > 1
+                if length(ssa_uses[e1.id + 1]) > 1
                     single_use = false
                 end
             end
-            def = sv.ssavalue_defs[e1.id + 1]
+            def = ssa_defs[e1.id + 1]
             stmt = sv.src.code[def]::Expr
             e1 = stmt.args[2]
         end
@@ -5735,12 +5832,12 @@ function _getfield_elim_pass!(e::Expr, sv::InferenceState)
     return e
 end
 
-_getfield_elim_pass!(@nospecialize(e), sv) = e
+_getfield_elim_pass!(@nospecialize(e), ssa_defs::Vector{LineNum}, ssa_uses::Vector{IntSet}, sv::OptimizationState) = e
 
 # check if e is a successful allocation of an struct
 # if it is, returns (n,f) such that it is always valid to call
 # getfield(..., 1 <= x <= n) or getfield(..., x in f) on the result
-function is_allocation(@nospecialize(e), sv::InferenceState)
+function is_allocation(@nospecialize(e), sv::OptimizationState)
     isa(e, Expr) || return false
     if is_known_call(e, tuple, sv.src, sv.mod)
         return (length(e.args)-1,())
@@ -5763,7 +5860,7 @@ function is_allocation(@nospecialize(e), sv::InferenceState)
 end
 
 # Replace branches with constant conditions with unconditional branches
-function gotoifnot_elim_pass!(sv::InferenceState)
+function gotoifnot_elim_pass!(sv::OptimizationState)
     body = sv.src.code
     i = 1
     while i < length(body)
@@ -5790,9 +5887,9 @@ function gotoifnot_elim_pass!(sv::InferenceState)
 end
 
 # basic dead-code-elimination of unreachable statements
-function basic_dce_pass!(sv::InferenceState)
+function basic_dce_pass!(sv::OptimizationState)
     body = sv.src.code
-    labelmap = get_label_map(body, sv)
+    labelmap = get_label_map(body)
     reachable = IntSet()
     W = IntSet()
     push!(W, 1)
@@ -5801,21 +5898,26 @@ function basic_dce_pass!(sv::InferenceState)
         pc in reachable && continue
         push!(reachable, pc)
         expr = body[pc]
-        pc += 1
+        pc´ = pc + 1 # next program-counter (after executing instruction)
         if isa(expr, GotoNode)
-            pc = labelmap[expr.label]
+            pc´ = labelmap[expr.label]
         elseif isa(expr, Expr)
-            label = 0
             if expr.head === :gotoifnot
                 label = labelmap[expr.args[2]::Int]
-                label === 0 || push!(W, label) # inference must have computed that this condition is always true
+                if label === 0
+                     # inference must have computed that this condition is always true
+                     # drop the gotoifnot node, leaving just the code to compute the condition
+                     body[pc] = expr.args[1]
+                else
+                    push!(W, label)
+                end
             elseif expr.head === :enter
                 push!(W, labelmap[expr.args[1]::Int])
             elseif expr.head === :return
                 continue
             end
         end
-        pc <= length(body) && push!(W, pc)
+        pc´ <= length(body) && push!(W, pc´)
     end
     for i in 1:length(body)
         expr = body[i]
@@ -5830,7 +5932,7 @@ end
 
 # eliminate allocation of unnecessary objects
 # that are only used as arguments to safe getfield calls
-function alloc_elim_pass!(sv::InferenceState)
+function alloc_elim_pass!(sv::OptimizationState)
     body = sv.src.code
     bexpr = Expr(:block)
     bexpr.args = body
@@ -5976,7 +6078,7 @@ function delete_void_use!(body, var::Slot, i0)
     return ndel
 end
 
-function replace_getfield!(e::Expr, tupname, vals, field_names, sv::InferenceState)
+function replace_getfield!(e::Expr, tupname, vals, field_names, sv::OptimizationState)
     for i = 1:length(e.args)
         a = e.args[i]
         if !isa(a, Expr)
@@ -6034,9 +6136,9 @@ function replace_getfield!(e::Expr, tupname, vals, field_names, sv::InferenceSta
 end
 
 # fix label numbers to always equal the statement index of the label
-function reindex_labels!(sv::InferenceState)
+function reindex_labels!(sv::OptimizationState)
     body = sv.src.code
-    mapping = get_label_map(body, sv)
+    mapping = get_label_map(body)
     for i = 1:length(body)
         el = body[i]
         # For goto and enter, the statement and the target has to be
@@ -6054,7 +6156,8 @@ function reindex_labels!(sv::InferenceState)
             body[i] = GotoNode(labelnum)
         elseif isa(el, Expr)
             if el.head === :gotoifnot
-                labelnum = mapping[el.args[2]::Int]
+                id = el.args[2]::Int
+                labelnum = mapping[id]
                 if labelnum === 0
                     # Might still have side effects
                     body[i] = el.args[1]

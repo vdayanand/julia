@@ -1176,3 +1176,18 @@ g23024(TT::Tuple{DataType}) = f23024(TT[1], v23024)
 @test Base.return_types(f23024, (DataType, Any)) == Any[Int]
 @test Base.return_types(g23024, (Tuple{DataType},)) == Any[Int]
 @test g23024((UInt8,)) === 2
+
+# test the external OptimizationState constructor
+let linfo = get_linfo(Base.convert, Tuple{Type{Int64}, Int32}),
+    world = typemax(UInt),
+    opt = Core.Inference.OptimizationState(linfo, Core.Inference.InferenceParams(world))
+    # make sure the state of the properties look reasonable
+    @test opt.src !== linfo.def.source
+    @test length(opt.src.slotflags) == length(opt.src.slotnames) == length(opt.src.slottypes)
+    @test opt.src.ssavaluetypes isa Vector{Any}
+    @test !opt.src.inferred
+    @test opt.mod === Base
+    @test opt.max_valid === typemax(UInt)
+    @test opt.min_valid === Core.Inference.min_world(opt.linfo) > 2
+    @test opt.nargs == 3
+end
