@@ -926,7 +926,7 @@ issymmetric(x::Number) = x == x
 """
     ishermitian(A) -> Bool
 
-Test whether a matrix is Hermitian (such that `A = adjoint(A)`).
+Test whether a matrix is Hermitian (such that `A == adjoint(A)`).
 
 # Examples
 ```jldoctest

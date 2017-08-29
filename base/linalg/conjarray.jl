@@ -20,7 +20,7 @@ julia> ConjArray([1+im 0; 0 1-im])
  0+0im  1+1im
 ```
 """
-struct ConjArray{T,N,A<:AbstractArray} <: AbstractArray{T,N}
+struct ConjArray{T,N,A<:AbstractArray{<:Any,N}} <: AbstractArray{T,N}
     parent::A
 end
 
@@ -51,12 +51,8 @@ IndexStyle(::Type{CA}) where {CA<:ConjArray} = IndexStyle(parent_type(CA))
 
 @inline similar(a::ConjArray, ::Type{T}, dims::Dims{N}) where {T,N} = similar(parent(a), T, dims)
 
-# Currently, this is default behavior for RowVector only
-@inline conj(a::ConjArray) = parent(a)
-@inline adjoint(a::ConjArray) = ConjAdjointArray(parent(a))
-
 """
-AdjointArray(array)
+    AdjointArray(array)
 
 A lazy-view wrapper of an `AbstractArray`, taking the elementwise adjoint. This
 type is usually constructed (and unwrapped) via the [`adjoint`](@ref) function, but
@@ -75,7 +71,7 @@ julia> AdjointArray([1+im 0; 0 1-im])
 0+0im  1+1im
 ```
 """
-struct AdjointArray{T,N,A<:AbstractArray} <: AbstractArray{T,N}
+struct AdjointArray{T,N,A<:AbstractArray{<:Any,N}} <: AbstractArray{T,N}
     parent::A
 end
 
@@ -106,12 +102,8 @@ IndexStyle(::Type{AA}) where {AA<:AdjointArray} = IndexStyle(parent_type(AA))
 
 @inline similar(a::AdjointArray, ::Type{T}, dims::Dims{N}) where {T,N} = similar(parent(a), T, dims)
 
-# Currently, this is default behavior for RowVector only
-@inline adjoint(a::AdjointArray) = parent(a)
-@inline conj(a::AdjointArray) = ConjAdjointArray(parent(a))
-
 """
-ConjAdjointArray(array)
+    ConjAdjointArray(array)
 
 A lazy-view wrapper of an `AbstractArray`, mapping each element `i` to `conj(adjoint(i))`.
 This type is usually constructed (and unwrapped) via consecutive [`adjoint`](@ref) and
@@ -130,7 +122,7 @@ julia> ConjAdjointArray([1+im 0; 0 1-im])
 0+0im  1-1im
 ```
 """
-struct ConjAdjointArray{T,N,A<:AbstractArray} <: AbstractArray{T,N}
+struct ConjAdjointArray{T,N,A<:AbstractArray{<:Any,N}} <: AbstractArray{T,N}
     parent::A
 end
 
@@ -162,11 +154,16 @@ IndexStyle(::Type{A}) where {A<:ConjAdjointArray} = IndexStyle(parent_type(A))
 @inline similar(a::ConjAdjointArray, ::Type{T}, dims::Dims{N}) where {T,N} = similar(parent(a), T, dims)
 
 # Currently, this is default behavior for RowVector only
-@inline adjoint(a::ConjAdjointArray) = ConjArray(parent(a))
+@inline conj(a::ConjArray) = parent(a)
+@inline conj(a::AdjointArray) = ConjAdjointArray(parent(a))
 @inline conj(a::ConjAdjointArray) = AdjointArray(parent(a))
 
+@inline adjoint(a::ConjArray) = ConjAdjointArray(parent(a))
+@inline adjoint(a::AdjointArray) = parent(a)
+@inline adjoint(a::ConjAdjointArray) = ConjArray(parent(a))
+
 # Helper functions, currently used by RowVector
-# (some of these are simplify types that would not typically occur)
+# (some of these simplify types that would not typically occur)
 @inline _conj(a::AbstractArray) = ConjArray(a)
 @inline _conj(a::AbstractArray{<:Real}) = a
 @inline _conj(a::ConjArray) = parent(a)

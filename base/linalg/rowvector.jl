@@ -70,13 +70,7 @@ julia> transpose(v)
 @inline transpose(vec::AbstractVector) = RowVector(vec)
 @inline adjoint(vec::AbstractVector) = RowVector(_adjoint(vec))
 
-# For the moment, we remove the ConjArray wrapper from any raw vector of numbers, to allow for BLAS specializations
 @inline transpose(rowvec::RowVector) = parent(rowvec)
-@inline transpose(rowvec::ConjRowVector{<:Number}) = copy(parent(rowvec))
-
-@inline adjoint(rowvec::RowVector{<:Real}) = parent(rowvec)
-@inline adjoint(rowvec::RowVector{<:Number}) = conj(parent(rowvec))
-@inline adjoint(rowvec::ConjRowVector{<:Number}) = parent(rowvec)
 @inline adjoint(rowvec::RowVector) = _adjoint(parent(rowvec))
 
 """
@@ -96,7 +90,6 @@ julia> conj(v)
 ```
 """
 @inline conj(rowvec::RowVector) = RowVector(_conj(parent(rowvec)))
-@inline conj(rowvec::RowVector{<:Real}) = rowvec
 
 # AbstractArray interface
 @inline length(rowvec::RowVector) =  length(parent(rowvec))
