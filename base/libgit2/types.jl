@@ -835,6 +835,46 @@ function Base.show(io::IO, ce::ConfigEntry)
     print(io, "ConfigEntry(\"", unsafe_string(ce.name), "\", \"", unsafe_string(ce.value), "\")")
 end
 
+"""
+    split(ce::LibGit2.ConfigEntry) -> Tuple{String,String,String,String}
+
+Break the `ConfigEntry` up to the following pieces: section, subsection, name, and value.
+
+# Examples
+Given the git configuration file containing:
+```
+[credential "https://example.com"]
+    username = me
+```
+
+The `ConfigEntry` would look like the following:
+
+```julia-repl
+julia> entry
+ConfigEntry("credential.https://example.com.username", "me")
+
+julia> split(entry)
+("credential", "https://example.com", "username", "me")
+```
+
+Refer to the [git config syntax documenation](https://git-scm.com/docs/git-config#_syntax)
+for more details.
+"""
+function Base.split(ce::ConfigEntry)
+    key = unsafe_string(ce.name)
+
+    # Determine the positions of the delimiters
+    subsection_delim = search(key, '.')
+    name_delim = rsearch(key, '.')
+
+    section = SubString(key, 1, subsection_delim - 1)
+    subsection = SubString(key, subsection_delim + 1, name_delim - 1)
+    name = SubString(key, name_delim + 1)
+    value = unsafe_string(ce.value)
+
+    return (section, subsection, name, value)
+end
+
 # Abstract object types
 abstract type AbstractGitObject end
 Base.isempty(obj::AbstractGitObject) = (obj.ptr == C_NULL)
