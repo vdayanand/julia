@@ -1189,6 +1189,8 @@ mutable struct CredentialPayload <: Payload
     allow_ssh_agent::Bool  # Allow the use of the SSH agent to get credentials
     allow_prompt::Bool     # Allow prompting the user for credentials
 
+    config::GitConfig
+
     # Ephemeral state fields
     credential::Nullable{AbstractCredentials}
     first_pass::Bool
@@ -1203,10 +1205,12 @@ mutable struct CredentialPayload <: Payload
 
     function CredentialPayload(
             credential::Nullable{<:AbstractCredentials}=Nullable{AbstractCredentials}(),
-            cache::Nullable{CachedCredentials}=Nullable{CachedCredentials}();
+            cache::Nullable{CachedCredentials}=Nullable{CachedCredentials}(),
+            config::GitConfig=GitConfig();
             allow_ssh_agent::Bool=true,
             allow_prompt::Bool=true)
-        payload = new(credential, cache, allow_ssh_agent, allow_prompt)
+
+        payload = new(credential, cache, allow_ssh_agent, allow_prompt, config)
         return reset!(payload)
     end
 end
@@ -1220,12 +1224,13 @@ function CredentialPayload(cache::CachedCredentials; kwargs...)
 end
 
 """
-    reset!(payload) -> CredentialPayload
+    reset!(payload, [config]) -> CredentialPayload
 
 Reset the `payload` state back to the initial values so that it can be used again within
-the credential callback.
+the credential callback. If a `config` is provided the configuration will also be updated.
 """
-function reset!(p::CredentialPayload)
+function reset!(p::CredentialPayload, config::GitConfig=p.config)
+    p.config = config
     p.credential = Nullable{AbstractCredentials}()
     p.first_pass = true
     p.use_ssh_agent = p.allow_ssh_agent
