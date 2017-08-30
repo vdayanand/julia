@@ -448,6 +448,7 @@ mktempdir() do dir
             @test count == 2
         finally
             close(cfg)
+            rm(config_path)
         end
     end
 
@@ -1699,6 +1700,116 @@ mktempdir() do dir
         @test !haskey(cache, cred_id)
         @test cred.user != "julia"
         @test cred.pass != "password"
+    end
+
+    @testset "GitCredential" begin
+        @testset "fill username" begin
+            config_path = joinpath(dir, config_file)
+            cfg = LibGit2.GitConfig(config_path, LibGit2.Consts.CONFIG_LEVEL_APP)
+
+            try
+                # No credential settings should be set for these tests
+                @test isempty(collect(LibGit2.GitConfigIter(cfg, r"credential.*")))
+
+                # No credential settings in configuration.
+                query = LibGit2.GitCredential("https", "github.com", "path")
+                filled = LibGit2.GitCredential("https", "github.com", "path")
+                @test LibGit2.fill!(cfg, query) == filled
+
+                # Add a credential setting for a specific for a URL
+                LibGit2.set!(cfg, "credential.https://github.com.username", "foo")
+
+                query = LibGit2.GitCredential("https", "github.com", "path")
+                filled = LibGit2.GitCredential("https", "github.com", "path", "foo")
+                @test LibGit2.fill!(cfg, query) == filled
+
+                query = LibGit2.GitCredential("https", "mygithost", "path")
+                filled = LibGit2.GitCredential("https", "mygithost", "path")
+                @test LibGit2.fill!(cfg, query) == filled
+
+                # Add a global credential setting after the URL specific setting. The first
+                # setting to match will be the one that is used.
+                LibGit2.set!(cfg, "credential.username", "bar")
+
+                query = LibGit2.GitCredential("https", "github.com", "path")
+                filled = LibGit2.GitCredential("https", "github.com", "path", "foo")
+                @test LibGit2.fill!(cfg, query) == filled
+
+                query = LibGit2.GitCredential("https", "mygithost", "path")
+                filled = LibGit2.GitCredential("https", "mygithost", "path", "bar")
+                @test LibGit2.fill!(cfg, query) == filled
+            finally
+                close(cfg)
+                rm(config_path)
+            end
+        end
+
+        @testset "empty username" begin
+            config_path = joinpath(dir, config_file)
+            cfg = LibGit2.GitConfig(config_path, LibGit2.Consts.CONFIG_LEVEL_APP)
+
+            try
+                # No credential settings should be set for these tests
+                @test isempty(collect(LibGit2.GitConfigIter(cfg, r"credential.*")))
+
+                # An empty username should count as being set
+                LibGit2.set!(cfg, "credential.https://github.com.username", "")
+                LibGit2.set!(cfg, "credential.username", "name")
+
+                query = LibGit2.GitCredential("https", "github.com", "path")
+                filled = LibGit2.GitCredential("https", "github.com", "path", "")
+                @test LibGit2.fill!(cfg, query) == filled
+
+                query = LibGit2.GitCredential("https", "mygithost", "path")
+                filled = LibGit2.GitCredential("https", "mygithost", "path", "name")
+                @test LibGit2.fill!(cfg, query) == filled
+            finally
+                close(cfg)
+                rm(config_path)
+            end
+        end
+    end
+
+    @testset "GitCredentialHelpers" begin
+        # In order to use the "store" credential helper `git` needs to be installed and
+        # on the path.
+        git_installed = try
+            success(`git --version`)
+        catch
+            false
+        end
+
+        if git_installed
+            config_path = joinpath(dir, config_file)
+            cfg = LibGit2.GitConfig(config_path, LibGit2.Consts.CONFIG_LEVEL_APP)
+            credential_file = joinpath(dir, ".git-credentials")
+
+            try
+                @test !isfile(credential_file)
+                @test isempty(LibGit2.get(cfg, "credential.helper", ""))
+
+                helper = parse(LibGit2.GitCredentialHelper, "store")  # Requires `git`
+                LibGit2.set!(cfg, "credential.helper", "store")
+
+                # Set HOME to control where .git-credentials file is written.
+                withenv((Sys.iswindows() ? "USERPROFILE" : "HOME") => dir) do
+                    query = LibGit2.GitCredential("https", "mygithost")
+                    filled = LibGit2.GitCredential("https", "mygithost", "", "bob", "s3cre7")
+
+                    @test LibGit2.fill!(helper, deepcopy(query)) == query
+
+                    LibGit2.approve(helper, filled)
+                    @test LibGit2.fill!(helper, deepcopy(query)) == filled
+
+                    LibGit2.reject(helper, filled)
+                    @test LibGit2.fill!(helper, deepcopy(query)) == query
+                end
+            finally
+                close(cfg)
+                isfile(credential_file) && rm(credential_file)
+                rm(config_path)
+            end
+        end
     end
 
     # The following tests require that we can fake a TTY so that we can provide passwords
