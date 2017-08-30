@@ -33,6 +33,7 @@ include("rebase.jl")
 include("blame.jl")
 include("status.jl")
 include("tree.jl")
+include("gitcredential.jl")
 include("callbacks.jl")
 
 using .Error
