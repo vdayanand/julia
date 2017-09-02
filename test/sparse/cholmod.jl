@@ -216,7 +216,7 @@ end
 ### illegal dtype (for now but should be supported at some point)
 p = ccall((:cholmod_l_allocate_sparse, :libcholmod), Ptr{CHOLMOD.C_SparseVoid},
     (Csize_t, Csize_t, Csize_t, Cint, Cint, Cint, Cint, Ptr{Void}),
-    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common())
+    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common_struct)
 puint = convert(Ptr{UInt32}, p)
 unsafe_store!(puint, CHOLMOD.SINGLE, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) + 4)
 @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -224,7 +224,7 @@ unsafe_store!(puint, CHOLMOD.SINGLE, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Pt
 ### illegal dtype
 p = ccall((:cholmod_l_allocate_sparse, :libcholmod), Ptr{CHOLMOD.C_SparseVoid},
     (Csize_t, Csize_t, Csize_t, Cint, Cint, Cint, Cint, Ptr{Void}),
-    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common())
+    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common_struct)
 puint = convert(Ptr{UInt32}, p)
 unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) + 4)
 @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -232,7 +232,7 @@ unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) 
 ### illegal xtype
 p = ccall((:cholmod_l_allocate_sparse, :libcholmod), Ptr{CHOLMOD.C_SparseVoid},
     (Csize_t, Csize_t, Csize_t, Cint, Cint, Cint, Cint, Ptr{Void}),
-    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common())
+    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common_struct)
 puint = convert(Ptr{UInt32}, p)
 unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) + 3)
 @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -240,7 +240,7 @@ unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) 
 ### illegal itype
 p = ccall((:cholmod_l_allocate_sparse, :libcholmod), Ptr{CHOLMOD.C_SparseVoid},
     (Csize_t, Csize_t, Csize_t, Cint, Cint, Cint, Cint, Ptr{Void}),
-    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common())
+    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common_struct)
 puint = convert(Ptr{UInt32}, p)
 unsafe_store!(puint, CHOLMOD.INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) + 2)
 @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -248,7 +248,7 @@ unsafe_store!(puint, CHOLMOD.INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(P
 ### illegal itype
 p = ccall((:cholmod_l_allocate_sparse, :libcholmod), Ptr{CHOLMOD.C_SparseVoid},
     (Csize_t, Csize_t, Csize_t, Cint, Cint, Cint, Cint, Ptr{Void}),
-    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common())
+    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common_struct)
 puint = convert(Ptr{UInt32}, p)
 unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Void}), 4) + 2)
 @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -297,7 +297,7 @@ end
 ## test free_sparse!
 p = ccall((:cholmod_l_allocate_sparse, :libcholmod), Ptr{CHOLMOD.C_Sparse{Float64}},
     (Csize_t, Csize_t, Csize_t, Cint, Cint, Cint, Cint, Ptr{Void}),
-    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common())
+    1, 1, 1, true, true, 0, CHOLMOD.REAL, CHOLMOD.common_struct)
 @test CHOLMOD.free_sparse!(p)
 
 for elty in (Float64, Complex{Float64})
@@ -668,6 +668,7 @@ let Apre = sprandn(10, 10, 0.2) - I
     for A in (Symmetric(Apre), Hermitian(Apre),
               Symmetric(Apre + 10I), Hermitian(Apre + 10I),
               Hermitian(complex(Apre)), Hermitian(complex(Apre) + 10I))
+        local A
         x = ones(10)
         b = A*x
         @test x ≈ A\b
@@ -687,14 +688,13 @@ let A = sprandn(10, 10, 0.1)
     end
 end
 
-@testset "Check inputs to Sparse. Related to #20024" for A in (
+@testset "Check inputs to Sparse. Related to #20024" for A_ in (
     SparseMatrixCSC(2, 2, [1, 2], CHOLMOD.SuiteSparse_long[], Float64[]),
     SparseMatrixCSC(2, 2, [1, 2, 3], CHOLMOD.SuiteSparse_long[1], Float64[]),
     SparseMatrixCSC(2, 2, [1, 2, 3], CHOLMOD.SuiteSparse_long[], Float64[1.0]),
     SparseMatrixCSC(2, 2, [1, 2, 3], CHOLMOD.SuiteSparse_long[1], Float64[1.0]))
-
-    @test_throws ArgumentError CHOLMOD.Sparse(size(A)..., A.colptr - 1, A.rowval - 1, A.nzval)
-    @test_throws ArgumentError CHOLMOD.Sparse(A)
+    @test_throws ArgumentError CHOLMOD.Sparse(size(A_)..., A_.colptr - 1, A_.rowval - 1, A_.nzval)
+    @test_throws ArgumentError CHOLMOD.Sparse(A_)
 end
 
 @testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
@@ -714,6 +714,7 @@ AtA = A'*A;
 C0 = [1., 2., 0, 0, 0]
 #Test both cholfact and LDLt with and without automatic permutations
 for F in (cholfact(AtA), cholfact(AtA, perm=1:5), ldltfact(AtA), ldltfact(AtA, perm=1:5))
+    local F
     B0 = F\ones(5)
     #Test both sparse/dense and vectors/matrices
     for Ctest in (C0, sparse(C0), [C0 2*C0], sparse([C0 2*C0]))

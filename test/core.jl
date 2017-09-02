@@ -942,7 +942,7 @@ end
 
 @test unsafe_pointer_to_objref(ccall(:jl_call1, Ptr{Void}, (Any,Any),
                                      x -> x+1, 314158)) == 314159
-@test unsafe_pointer_to_objref(pointer_from_objref(e+pi)) == e+pi
+@test unsafe_pointer_to_objref(pointer_from_objref(ℯ+pi)) == ℯ+pi
 
 let
     local a, aa
@@ -2921,6 +2921,13 @@ function f11065()
 end
 @test_throws UndefVarError f11065()
 
+# for loop iterator expression should be evaluated in outer scope
+let
+    for i in (local a = 1:2)
+    end
+    @test a == 1:2
+end
+
 # issue #11295
 function f11295(x...)
     call = Expr(x...)
@@ -3139,6 +3146,37 @@ struct MyType8010_ghost
 end
 @test_throws TypeError MyType8010([3.0;4.0])
 @test_throws TypeError MyType8010_ghost([3.0;4.0])
+
+module TestNewTypeError
+using Base.Test
+
+struct A
+end
+struct B
+    a::A
+end
+@eval function f1()
+    # Emitting this direction is not recommended but it can come from `convert` that does not
+    # return the correct type.
+    $(Expr(:new, B, 1))
+end
+@eval function f2()
+    a = $(Expr(:new, B, 1))
+    a = a
+    return nothing
+end
+@generated function f3()
+    quote
+        $(Expr(:new, B, 1))
+        return nothing
+    end
+end
+@test_throws TypeError f1()
+@test_throws TypeError f2()
+@test_throws TypeError f3()
+@test_throws TypeError eval(Expr(:new, B, 1))
+
+end
 
 # don't allow redefining types if ninitialized changes
 struct NInitializedTestType
@@ -3758,11 +3796,11 @@ end
 
 module M15455
 function rpm_provides(r::T) where T
-    push!([], select(r,T))
+    push!([], partialsort(r,T))
 end
-select(a,b) = 0
+partialsort(a,b) = 0
 end
-@test M15455.select(1,2)==0
+@test M15455.partialsort(1,2)==0
 
 # check that medium-sized array is 64-byte aligned (#15139)
 @test Int(pointer(Vector{Float64}(1024))) % 64 == 0
@@ -3772,7 +3810,7 @@ end
 # `TypeVar`) without crashing
 let
     function arrayset_unknown_dim(::Type{T}, n) where T
-        Base.arrayset(reshape(Vector{T}(1), ones(Int, n)...), 2, 1)
+        Base.arrayset(true, reshape(Vector{T}(1), ones(Int, n)...), 2, 1)
     end
     arrayset_unknown_dim(Any, 1)
     arrayset_unknown_dim(Any, 2)
@@ -3964,16 +4002,13 @@ end
 
 function metadata_matches(ast::CodeInfo)
     inbounds_cnt = Ref(0)
-    boundscheck_cnt = Ref(0)
     for ex in ast.code::Array{Any,1}
         if isa(ex, Expr)
             ex = ex::Expr
             count_expr_push(ex, :inbounds, inbounds_cnt)
-            count_expr_push(ex, :boundscheck, boundscheck_cnt)
         end
     end
     @test inbounds_cnt[] == 0
-    @test boundscheck_cnt[] == 0
 end
 
 function test_metadata_matches(@nospecialize(f), @nospecialize(tt))
@@ -3989,14 +4024,9 @@ function f2()
     end
 end
 # No, don't write code this way...
-@eval function f3()
-    a = $(Expr(:boundscheck, true))
-    return 1
-    b = $(Expr(:boundscheck, :pop))
-end
 @noinline function g(a)
 end
-@eval function f4()
+@eval function f3()
     g($(Expr(:inbounds, true)))
     @goto out
     g($(Expr(:inbounds, :pop)))
@@ -4006,7 +4036,6 @@ end
 test_metadata_matches(f1, Tuple{})
 test_metadata_matches(f2, Tuple{})
 test_metadata_matches(f3, Tuple{})
-test_metadata_matches(f4, Tuple{})
 
 end
 
@@ -4397,7 +4426,7 @@ end
 function f18054()
     return Cint(0)
 end
-cfunction(f18054, Cint, ())
+cfunction(f18054, Cint, Tuple{})
 
 # issue #18986: the ccall optimization of cfunction leaves JL_TRY stack in bad state
 dummy18996() = return nothing
@@ -5117,6 +5146,26 @@ f_isdefined_va(::T...) where {T} = @isdefined T
 @test !f_isdefined_va()
 @test f_isdefined_va(1, 2, 3)
 
+# @isdefined in a loop
+let a = []
+    for i = 1:2
+        push!(a, @isdefined(j))
+        local j = 1
+    end
+    @test a == [false, false]
+end
+
+# while loop scope
+let a = [], i = 0
+    while i < (local b = 2)
+        push!(a, @isdefined(j))
+        local j = 1
+        i += 1
+    end
+    @test a == [false, false]
+    @test b == 2
+end
+
 mutable struct MyStruct22929
     x::MyStruct22929
     MyStruct22929() = new()
@@ -5232,6 +5281,11 @@ const unboxedunions = [Union{Int8, Void}, Union{Int8, Float16, Void},
 @test Base.bitsunionsize(unboxedunions[3]) == 16
 @test Base.bitsunionsize(unboxedunions[4]) == 8
 
+@test sizeof(unboxedunions[1]) == 1
+@test sizeof(unboxedunions[2]) == 2
+@test sizeof(unboxedunions[3]) == 16
+@test sizeof(unboxedunions[4]) == 8
+
 initvalue(::Type{Void}) = nothing
 initvalue(::Type{Char}) = '\0'
 initvalue(::Type{Date}) = Date(0, 12, 31)
@@ -5256,14 +5310,15 @@ x.u = initvalue(Base.uniontypes(U)[2])
 @test x.u === initvalue(Base.uniontypes(U)[2])
 
 for U in boxedunions
+    local U
     for N in (1, 2, 3, 4)
         A = Array{U}(ntuple(x->0, N)...)
         @test isempty(A)
-        @test Core.sizeof(A) == 0
+        @test sizeof(A) == 0
 
         A = Array{U}(ntuple(x->10, N)...)
         @test length(A) == 10^N
-        @test Core.sizeof(A) == sizeof(Int) * (10^N)
+        @test sizeof(A) == sizeof(Int) * (10^N)
         @test !isassigned(A, 1)
     end
 end
@@ -5275,16 +5330,17 @@ A5 = [1 2 3; 4 5 6]
 @test_throws ArgumentError unsafe_wrap(Array, convert(Ptr{Union{Int, Void}}, pointer(A5)), 6)
 
 for U in unboxedunions
+    local U
     for N in (1, 2, 3, 4)
         A = Array{U}(ntuple(x->0, N)...)
         @test isempty(A)
-        @test Core.sizeof(A) == 0
+        @test sizeof(A) == 0
 
         len = ntuple(x->10, N)
         mxsz = maximum(sizeof, Base.uniontypes(U))
         A = Array{U}(len)
         @test length(A) == prod(len)
-        @test Core.sizeof(A) == prod(len) * mxsz
+        @test sizeof(A) == prod(len) * mxsz
         @test isassigned(A, 1)
         @test isassigned(A, length(A))
 
@@ -5312,7 +5368,7 @@ for U in unboxedunions
 
         # reshape
         A3 = reshape(A, (div(prod(len), 2), 2))
-        @test Core.sizeof(A) == prod(len) * mxsz
+        @test sizeof(A) == prod(len) * mxsz
         @test isassigned(A, 1)
         @test A[1] === initvalue2(F)
 
@@ -5359,7 +5415,8 @@ for U in unboxedunions
             # deleteat!
             F = Base.uniontypes(U)[2]
             A = U[rand(F(1):F(len)) for i = 1:len]
-            deleteat!(A, map(Int, sort!(unique(A[1:4]))))
+            # The 2-arg `unique` method works around #22688
+            deleteat!(A, map(Int, sort!(unique(identity, A[1:4]))))
             A = U[initvalue2(F2) for i = 1:len]
             deleteat!(A, 1:2)
             @test length(A) == len - 2
@@ -5442,3 +5499,29 @@ for U in unboxedunions
 end
 
 end # module UnionOptimizations
+
+# issue #6614, argument destructuring
+f6614((x, y)) = [x, y]
+@test f6614((4, 3)) == [4, 3]
+g6614((x, y), (z,), (a, b)) = (x,y,z,a,b)
+@test g6614((1, 2), (3,), (4, 5)) === (1,2,3,4,5)
+@test_throws MethodError g6614(1, 2)
+@test_throws MethodError g6614((1, 2), (3,))
+@test_throws BoundsError g6614((1, 2), (3,), (1,))
+h6614((x, y) = (5, 6)) = (y, x)
+@test h6614() == (6, 5)
+@test h6614((4, 5)) == (5, 4)
+ff6614((x, y)::Tuple{Int, String}) = (x, y)
+@test ff6614((1, "")) == (1, "")
+@test_throws MethodError ff6614((1, 1))
+gg6614((x, y)::Tuple{Int, String} = (2, " ")) = (x, y)
+@test gg6614() == (2, " ")
+function hh6614()
+    x, y = 1, 2
+    function g((x,y))
+        # make sure x and y are local
+    end
+    g((4,5))
+    x, y
+end
+@test hh6614() == (1, 2)

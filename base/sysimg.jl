@@ -84,7 +84,6 @@ include("tuple.jl")
 include("pair.jl")
 include("traits.jl")
 include("range.jl")
-include("twiceprecision.jl")
 include("expr.jl")
 include("error.jl")
 
@@ -137,6 +136,7 @@ include("hashing.jl")
 include("rounding.jl")
 importall .Rounding
 include("float.jl")
+include("twiceprecision.jl")
 include("complex.jl")
 include("rational.jl")
 include("multinverses.jl")
@@ -325,6 +325,8 @@ include("hashing2.jl")
 
 # irrational mathematical constants
 include("irrationals.jl")
+include("mathconstants.jl")
+using .MathConstants: ℯ, π, pi
 
 # random number generation
 include("random/dSFMT.jl")

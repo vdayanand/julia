@@ -270,8 +270,12 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         JL_GC_PUSH2(&thetype, &v);
         assert(jl_is_structtype(thetype));
         v = jl_new_struct_uninit((jl_datatype_t*)thetype);
-        for(size_t i=1; i < nargs; i++) {
-            jl_set_nth_field(v, i-1, eval(args[i], s));
+        for (size_t i = 1; i < nargs; i++) {
+            jl_value_t *ft = jl_field_type(thetype, i - 1);
+            jl_value_t *fldv = eval(args[i], s);
+            if (!jl_isa(fldv, ft))
+                jl_type_error("new", ft, fldv);
+            jl_set_nth_field(v, i - 1, fldv);
         }
         JL_GC_POP();
         return v;
@@ -495,12 +499,15 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
             jl_errorf("syntax: %s", jl_string_data(args[0]));
         jl_throw(args[0]);
     }
+    else if (ex->head == boundscheck_sym) {
+        return jl_true;
+    }
     else if (ex->head == boundscheck_sym || ex->head == inbounds_sym || ex->head == fastmath_sym ||
              ex->head == simdloop_sym || ex->head == meta_sym) {
         return jl_nothing;
     }
     jl_errorf("unsupported or misplaced expression %s", jl_symbol_name(ex->head));
-    return (jl_value_t*)jl_nothing;
+    abort();
 }
 
 jl_value_t *jl_toplevel_eval_body(jl_module_t *m, jl_array_t *stmts)

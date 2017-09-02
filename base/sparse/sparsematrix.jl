@@ -52,7 +52,6 @@ getrowval(S::SparseMatrixCSCView) = S.parent.rowval
 getnzval( S::SparseMatrixCSC)     = S.nzval
 getnzval( S::SparseMatrixCSCView) = S.parent.nzval
 
-
 """
     nnz(A)
 
@@ -70,9 +69,9 @@ julia> nnz(A)
 3
 ```
 """
-nnz(S::SparseMatrixCSC) = Int(S.colptr[S.n + 1]-1)
-countnz(S::SparseMatrixCSC) = countnz(S.nzval)
-count(S::SparseMatrixCSC) = count(S.nzval)
+nnz(S::SparseMatrixCSC)         = Int(S.colptr[S.n + 1] - 1)
+count(S::SparseMatrixCSC)       = count(S.nzval)
+count(pred, S::SparseMatrixCSC) = count(pred, S.nzval) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S))
 
 """
     nonzeros(A)
@@ -853,14 +852,14 @@ function ftranspose!(X::SparseMatrixCSC{Tv,Ti}, A::SparseMatrixCSC{Tv,Ti}, f::Fu
     halfperm!(X, A, 1:A.n, f)
 end
 transpose!(X::SparseMatrixCSC{Tv,Ti}, A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, identity)
-ctranspose!(X::SparseMatrixCSC{Tv,Ti}, A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, conj)
+adjoint!(X::SparseMatrixCSC{Tv,Ti}, A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, conj)
 
 function ftranspose(A::SparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
     X = SparseMatrixCSC(A.n, A.m, Vector{Ti}(A.m+1), Vector{Ti}(nnz(A)), Vector{Tv}(nnz(A)))
     halfperm!(X, A, 1:A.n, f)
 end
 transpose(A::SparseMatrixCSC) = ftranspose(A, identity)
-ctranspose(A::SparseMatrixCSC) = ftranspose(A, conj)
+adjoint(A::SparseMatrixCSC) = ftranspose(A, conj)
 
 """
     unchecked_noalias_permute!(X::SparseMatrixCSC{Tv,Ti},
@@ -1274,7 +1273,6 @@ julia> dropzeros(A)
 """
 dropzeros(A::SparseMatrixCSC, trim::Bool = true) = dropzeros!(copy(A), trim)
 
-
 ## Find methods
 
 function find(S::SparseMatrixCSC)
@@ -1331,7 +1329,6 @@ function findnz(S::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
     return (I, J, V)
 end
-
 
 import Base.Random.GLOBAL_RNG
 function sprand_IJ(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat)
@@ -1424,7 +1421,6 @@ sprand(r::AbstractRNG, ::Type{T}, m::Integer, n::Integer, density::AbstractFloat
 sprand(r::AbstractRNG, ::Type{Bool}, m::Integer, n::Integer, density::AbstractFloat) = sprand(r,m,n,density, truebools, Bool)
 sprand(::Type{T}, m::Integer, n::Integer, density::AbstractFloat) where {T} = sprand(GLOBAL_RNG, T, m, n, density)
 
-
 """
     sprandn([rng], m[,n],p::AbstractFloat)
 
@@ -1446,7 +1442,6 @@ julia> sprandn(rng, 2, 2, 0.75)
 """
 sprandn(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat) = sprand(r,m,n,density,randn,Float64)
 sprandn(m::Integer, n::Integer, density::AbstractFloat) = sprandn(GLOBAL_RNG,m,n,density)
-
 
 """
     spones(S)
@@ -1569,7 +1564,6 @@ function speye_scaled(::Type{T}, diag, m::Integer, n::Integer) where T
 end
 
 sparse(S::UniformScaling, m::Integer, n::Integer=m) = speye_scaled(S.λ, m, n)
-
 
 # TODO: More appropriate location?
 conj!(A::SparseMatrixCSC) = (@inbounds broadcast!(conj, A.nzval, A.nzval); A)
@@ -1813,27 +1807,28 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSC{
 end
 
 # findmax/min and indmax/min methods
+# find first zero value in sparse matrix - return linear index in full matrix
+# non-structural zeros are identified by x == 0 in line with the sparse constructors.
 function _findz(A::SparseMatrixCSC{Tv,Ti}, rows=1:A.m, cols=1:A.n) where {Tv,Ti}
     colptr = A.colptr; rowval = A.rowval; nzval = A.nzval
-    zval = zero(Tv)
-    col = cols[1]; row = 0
+    zval = 0
+    row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == 1:A.m)
-    @inbounds while col <= cols[end]
+    @inbounds for  col in cols
         r1::Int = colptr[col]
         r2::Int = colptr[col+1] - 1
         if !allrows && (r1 <= r2)
             r1 = searchsortedfirst(rowval, rowmin, r1, r2, Forward)
-            (r1 <= r2 ) && (r2 = searchsortedlast(rowval, rowmax, r1, r2, Forward) + 1)
+            (r1 <= r2 ) && (r2 = searchsortedlast(rowval, rowmax, r1, r2, Forward))
         end
         row = rowmin
-        (r1 > r2) && (return sub2ind(size(A),row,col))
+
         while (r1 <= r2) && (row == rowval[r1]) && (nzval[r1] != zval)
             r1 += 1
             row += 1
         end
-        (row <= rowmax) && (return sub2ind(size(A),row,col))
-        col += 1
+        (row <= rowmax) && (return sub2ind(size(A), row, col))
     end
     return 0
 end
@@ -1842,7 +1837,14 @@ macro _findr(op, A, region, Tv, Ti)
     esc(quote
     N = nnz($A)
     L = length($A)
-    (L == 0) && error("array must be non-empty")
+    if L == 0
+        if prod(map(length, Base.reduced_indices($A, $region))) != 0
+            throw(ArgumentError("array slices must be non-empty"))
+        else
+            ri = Base.reduced_indices0($A, $region)
+            return (similar($A, ri), similar(dims->zeros(Int, dims), ri))
+        end
+    end
 
     colptr = $A.colptr; rowval = $A.rowval; nzval = $A.nzval; m = $A.m; n = $A.n
     zval = zero($Tv)
@@ -1903,18 +1905,16 @@ macro _findr(op, A, region, Tv, Ti)
     end) #quote
 end
 
-findmin(A::SparseMatrixCSC{Tv,Ti}, region) where {Tv,Ti} = @_findr(<, A, region, Tv, Ti)
-findmax(A::SparseMatrixCSC{Tv,Ti}, region) where {Tv,Ti} = @_findr(>, A, region, Tv, Ti)
+_isless_fm(a, b)    =  b == b && ( a != a || isless(a, b) )
+_isgreater_fm(a, b) =  b == b && ( a != a || isless(b, a) )
+
+findmin(A::SparseMatrixCSC{Tv,Ti}, region) where {Tv,Ti} = @_findr(_isless_fm, A, region, Tv, Ti)
+findmax(A::SparseMatrixCSC{Tv,Ti}, region) where {Tv,Ti} = @_findr(_isgreater_fm, A, region, Tv, Ti)
 findmin(A::SparseMatrixCSC) = (r=findmin(A,(1,2)); (r[1][1], r[2][1]))
 findmax(A::SparseMatrixCSC) = (r=findmax(A,(1,2)); (r[1][1], r[2][1]))
 
 indmin(A::SparseMatrixCSC) = findmin(A)[2]
 indmax(A::SparseMatrixCSC) = findmax(A)[2]
-
-#all(A::SparseMatrixCSC{Bool}, region) = reducedim(all,A,region,true)
-#any(A::SparseMatrixCSC{Bool}, region) = reducedim(any,A,region,false)
-#sum(A::SparseMatrixCSC{Bool}, region) = reducedim(+,A,region,0,Int)
-#sum(A::SparseMatrixCSC{Bool}) = countnz(A)
 
 ## getindex
 function rangesearch(haystack::Range, needle)
@@ -2553,7 +2553,6 @@ setindex!(A::SparseMatrixCSC, v::AbstractVector, i::Integer, J::AbstractVector{<
 setindex!(A::SparseMatrixCSC, v::AbstractVector, I::AbstractVector{T}, J::AbstractVector{T}) where {T<:Integer} =
       setindex!(A, reshape(v, length(I), length(J)), I, J)
 
-
 # A[I,J] = B
 function setindex!(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti}, I::AbstractVector{T}, J::AbstractVector{T}) where {Tv,Ti,T<:Integer}
     if size(B,1) != length(I) || size(B,2) != length(J)
@@ -2795,7 +2794,6 @@ function setindex!(A::SparseMatrixCSC, x, I::AbstractMatrix{Bool})
     A
 end
 
-
 function setindex!(A::SparseMatrixCSC, x, I::AbstractVector{<:Real})
     n = length(I)
     (n == 0) && (return A)
@@ -3033,7 +3031,6 @@ dropstored!(A::SparseMatrixCSC, ::Colon) = dropstored!(A, :, :)
 # TODO: Implement linear indexing methods for dropstored! ?
 # TODO: Implement logical indexing methods for dropstored! ?
 
-
 # Sparse concatenation
 
 function vcat(X::SparseMatrixCSC...)
@@ -3090,7 +3087,6 @@ end
         ptr_Xi += 1
     end
 end
-
 
 function hcat(X::SparseMatrixCSC...)
     num = length(X)
@@ -3380,83 +3376,39 @@ function expandptr(V::Vector{<:Integer})
     res
 end
 
-## diag and related using an iterator
 
-mutable struct SpDiagIterator{Tv,Ti}
-    A::SparseMatrixCSC{Tv,Ti}
-    n::Int
-end
-SpDiagIterator(A::SparseMatrixCSC) = SpDiagIterator(A,minimum(size(A)))
-
-length(d::SpDiagIterator) = d.n
-start(d::SpDiagIterator) = 1
-done(d::SpDiagIterator, j) = j > d.n
-
-function next(d::SpDiagIterator{Tv}, j) where Tv
-    A = d.A
-    r1 = Int(A.colptr[j])
-    r2 = Int(A.colptr[j+1]-1)
-    (r1 > r2) && (return (zero(Tv), j+1))
-    r1 = searchsortedfirst(A.rowval, j, r1, r2, Forward)
-    (((r1 > r2) || (A.rowval[r1] != j)) ? zero(Tv) : A.nzval[r1], j+1)
+function diag(A::SparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
+    m, n = size(A)
+    k = Int(d)
+    if !(-m <= k <= n)
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m, $n)"))
+    end
+    l = k < 0 ? min(m+k,n) : min(n-k,m)
+    r, c = k <= 0 ? (-k, 0) : (0, k) # start row/col -1
+    ind = Vector{Ti}()
+    val = Vector{Tv}()
+    for i in 1:l
+        r += 1; c += 1
+        r1 = Int(A.colptr[c])
+        r2 = Int(A.colptr[c+1]-1)
+        r1 > r2 && continue
+        r1 = searchsortedfirst(A.rowval, r, r1, r2, Forward)
+        ((r1 > r2) || (A.rowval[r1] != r)) && continue
+        push!(ind, i)
+        push!(val, A.nzval[r1])
+    end
+    return SparseVector{Tv,Ti}(l, ind, val)
 end
 
 function trace(A::SparseMatrixCSC{Tv}) where Tv
-    if size(A,1) != size(A,2)
-        throw(DimensionMismatch("expected square matrix"))
-    end
+    n = checksquare(A)
     s = zero(Tv)
-    for d in SpDiagIterator(A)
-        s += d
+    for i in 1:n
+        s += A[i,i]
     end
-    s
+    return s
 end
 
-diag(A::SparseMatrixCSC{Tv}) where {Tv} = Tv[d for d in SpDiagIterator(A)]
-
-function diagm(v::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-    if size(v,1) != 1 && size(v,2) != 1
-        throw(DimensionMismatch("input should be nx1 or 1xn"))
-    end
-
-    n = length(v)
-    numnz = nnz(v)
-    colptr = Vector{Ti}(n+1)
-    rowval = Vector{Ti}(numnz)
-    nzval = Vector{Tv}(numnz)
-
-    if size(v,1) == 1
-        copy!(colptr, 1, v.colptr, 1, n+1)
-        ptr = 1
-        for col = 1:n
-            if colptr[col] != colptr[col+1]
-                rowval[ptr] = col
-                nzval[ptr] = v.nzval[ptr]
-                ptr += 1
-            end
-        end
-    else
-        copy!(rowval, 1, v.rowval, 1, numnz)
-        copy!(nzval, 1, v.nzval, 1, numnz)
-        colptr[1] = 1
-        ptr = 1
-        col = 1
-        while col <= n && ptr <= numnz
-            while rowval[ptr] > col
-                colptr[col+1] = colptr[col]
-                col += 1
-            end
-            colptr[col+1] = colptr[col] + 1
-            ptr += 1
-            col += 1
-        end
-        if col <= n
-            colptr[(col+1):(n+1)] = colptr[col]
-        end
-    end
-
-    return SparseMatrixCSC(n, n, colptr, rowval, nzval)
-end
 
 # Sort all the indices in each column of a CSC sparse matrix
 # sortSparseMatrixCSC!(A, sortindices = :sortcols)        # Sort each column with sort()

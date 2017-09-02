@@ -332,7 +332,6 @@ function fill!(a::Array{T}, x) where T<:Union{Integer,AbstractFloat}
     return a
 end
 
-
 """
     fill(x, dims)
 
@@ -563,6 +562,12 @@ convert(::Type{Array{T,n}}, x::AbstractArray{S,n}) where {T,n,S} = copy!(Array{T
 
 promote_rule(a::Type{Array{T,n}}, b::Type{Array{S,n}}) where {T,n,S} = el_same(promote_type(T,S), a, b)
 
+# constructors should make copies
+
+if module_name(@__MODULE__) === :Base  # avoid method overwrite
+(::Type{T})(x::T) where {T<:Array} = copy(x)
+end
+
 ## copying iterators to containers
 
 """
@@ -760,8 +765,8 @@ julia> getindex(A, "a")
 function getindex end
 
 # This is more complicated than it needs to be in order to get Win64 through bootstrap
-getindex(A::Array, i1::Int) = arrayref(A, i1)
-getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref(A, i1, i2, I...)) # TODO: REMOVE FOR #14770
+@eval getindex(A::Array, i1::Int) = arrayref($(Expr(:boundscheck)), A, i1)
+@eval getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)) # TODO: REMOVE FOR #14770
 
 # Faster contiguous indexing using copy! for UnitRange and Colon
 function getindex(A::Array, I::UnitRange{Int})
@@ -798,8 +803,9 @@ x` is converted by the compiler to `(setindex!(a, x, i, j, ...); x)`.
 """
 function setindex! end
 
-setindex!(A::Array{T}, x, i1::Int) where {T} = arrayset(A, convert(T,x)::T, i1)
-setindex!(A::Array{T}, x, i1::Int, i2::Int, I::Int...) where {T} = (@_inline_meta; arrayset(A, convert(T,x)::T, i1, i2, I...)) # TODO: REMOVE FOR #14770
+@eval setindex!(A::Array{T}, x, i1::Int) where {T} = arrayset($(Expr(:boundscheck)), A, convert(T,x)::T, i1)
+@eval setindex!(A::Array{T}, x, i1::Int, i2::Int, I::Int...) where {T} =
+    (@_inline_meta; arrayset($(Expr(:boundscheck)), A, convert(T,x)::T, i1, i2, I...)) # TODO: REMOVE FOR #14770
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -905,7 +911,7 @@ end
 
 function push!(a::Array{Any,1}, @nospecialize item)
     _growend!(a, 1)
-    arrayset(a, item, length(a))
+    arrayset(true, a, item, length(a))
     return a
 end
 
@@ -1012,7 +1018,6 @@ function _prepend!(a, ::IteratorSize, iter)
     reverse!(a, 1, n)
     a
 end
-
 
 """
     resize!(a::Vector, n::Integer) -> Vector
@@ -1532,7 +1537,6 @@ function reverse!(v::AbstractVector, s=first(linearindices(v)), n=last(linearind
     return v
 end
 
-
 # concatenations of homogeneous combinations of vectors, horizontal and vertical
 
 vcat() = Array{Any,1}(0)
@@ -1576,7 +1580,6 @@ function vcat(arrays::Vector{T}...) where T
 end
 
 cat(n::Integer, x::Integer...) = reshape([x...], (ntuple(x->1, n-1)..., length(x)))
-
 
 ## find ##
 
@@ -1945,14 +1948,14 @@ julia> find(zeros(3))
 ```
 """
 function find(A)
-    nnzA = countnz(A)
+    nnzA = count(t -> t != 0, A)
     I = Vector{Int}(nnzA)
-    count = 1
+    cnt = 1
     inds = _index_remapper(A)
     for (i,a) in enumerate(A)
         if a != 0
-            I[count] = inds[i]
-            count += 1
+            I[cnt] = inds[i]
+            cnt += 1
         end
     end
     return I
@@ -1991,15 +1994,15 @@ julia> findn(A)
 ```
 """
 function findn(A::AbstractMatrix)
-    nnzA = countnz(A)
+    nnzA = count(t -> t != 0, A)
     I = similar(A, Int, nnzA)
     J = similar(A, Int, nnzA)
-    count = 1
+    cnt = 1
     for j=indices(A,2), i=indices(A,1)
         if A[i,j] != 0
-            I[count] = i
-            J[count] = j
-            count += 1
+            I[cnt] = i
+            J[cnt] = j
+            cnt += 1
         end
     end
     return (I, J)
@@ -2024,19 +2027,19 @@ julia> findnz(A)
 ```
 """
 function findnz(A::AbstractMatrix{T}) where T
-    nnzA = countnz(A)
+    nnzA = count(t -> t != 0, A)
     I = zeros(Int, nnzA)
     J = zeros(Int, nnzA)
     NZs = Array{T,1}(nnzA)
-    count = 1
+    cnt = 1
     if nnzA > 0
         for j=indices(A,2), i=indices(A,1)
             Aij = A[i,j]
             if Aij != 0
-                I[count] = i
-                J[count] = j
-                NZs[count] = Aij
-                count += 1
+                I[cnt] = i
+                J[cnt] = j
+                NZs[cnt] = Aij
+                cnt += 1
             end
         end
     end
@@ -2047,8 +2050,9 @@ end
     findmax(itr) -> (x, index)
 
 Returns the maximum element of the collection `itr` and its index. If there are multiple
-maximal elements, then the first one will be returned. `NaN` values are ignored, unless
-all elements are `NaN`. Other than the treatment of `NaN`, the result is in line with `max`.
+maximal elements, then the first one will be returned.
+If any data element is `NaN`, this element is returned.
+The result is in line with `max`.
 
 The collection must not be empty.
 
@@ -2061,7 +2065,7 @@ julia> findmax([1,7,7,6])
 (7, 2)
 
 julia> findmax([1,7,7,NaN])
-(7.0, 2)
+(NaN, 4)
 ```
 """
 function findmax(a)
@@ -2072,10 +2076,10 @@ function findmax(a)
     mi = i = 1
     m, s = next(a, s)
     while !done(a, s)
+        m != m && break
         ai, s = next(a, s)
         i += 1
-        ai != ai && continue # assume x != x => x is a NaN
-        if m != m || isless(m, ai)
+        if ai != ai || isless(m, ai)
             m = ai
             mi = i
         end
@@ -2087,8 +2091,9 @@ end
     findmin(itr) -> (x, index)
 
 Returns the minimum element of the collection `itr` and its index. If there are multiple
-minimal elements, then the first one will be returned. `NaN` values are ignored, unless
-all elements are `NaN`. Other than the treatment of `NaN`, the result is in line with `min`.
+minimal elements, then the first one will be returned.
+If any data element is `NaN`, this element is returned.
+The result is in line with `min`.
 
 The collection must not be empty.
 
@@ -2101,7 +2106,7 @@ julia> findmin([7,1,1,6])
 (1, 2)
 
 julia> findmin([7,1,1,NaN])
-(1.0, 2)
+(NaN, 4)
 ```
 """
 function findmin(a)
@@ -2112,10 +2117,10 @@ function findmin(a)
     mi = i = 1
     m, s = next(a, s)
     while !done(a, s)
+        m != m && break
         ai, s = next(a, s)
         i += 1
-        ai != ai && continue
-        if m != m || isless(ai, m)
+        if ai != ai || isless(ai, m)
             m = ai
             mi = i
         end
@@ -2127,8 +2132,7 @@ end
     indmax(itr) -> Integer
 
 Returns the index of the maximum element in a collection. If there are multiple maximal
-elements, then the first one will be returned. `NaN` values are ignored, unless all
-elements are `NaN`.
+elements, then the first one will be returned.
 
 The collection must not be empty.
 
@@ -2141,7 +2145,7 @@ julia> indmax([1,7,7,6])
 2
 
 julia> indmax([1,7,7,NaN])
-2
+4
 ```
 """
 indmax(a) = findmax(a)[2]
@@ -2150,8 +2154,7 @@ indmax(a) = findmax(a)[2]
     indmin(itr) -> Integer
 
 Returns the index of the minimum element in a collection. If there are multiple minimal
-elements, then the first one will be returned. `NaN` values are ignored, unless all
-elements are `NaN`.
+elements, then the first one will be returned.
 
 The collection must not be empty.
 
@@ -2164,7 +2167,7 @@ julia> indmin([7,1,1,6])
 2
 
 julia> indmin([7,1,1,NaN])
-2
+4
 ```
 """
 indmin(a) = findmin(a)[2]

@@ -6,7 +6,7 @@ using TestHelpers.OAs
 
 @testset "basics" begin
     @test length([1, 2, 3]) == 3
-    @test countnz([1, 2, 3]) == 3
+    @test count(!iszero, [1, 2, 3]) == 3
 
     let a = ones(4), b = a+a, c = a-a
         @test b[1] === 2. && b[2] === 2. && b[3] === 2. && b[4] === 2.
@@ -41,7 +41,6 @@ using TestHelpers.OAs
     @test isequal(1 .<< 1, 2)
     @test isequal([1,2,5] .<< [1,2,5], [2,8,160])
     @test isequal([10,20,50] .>> [1,2,5], [5,5,1])
-
 
     a = ones(2,2)
     a[1,1] = 1
@@ -90,6 +89,13 @@ using TestHelpers.OAs
     @test ndims(a) == 5
     @test a[2,1,2,2,1] == b[14]
     @test a[2,2,2,2,2] == b[end]
+
+    # issue #23107
+    a = [1,2,3]
+    @test typeof(a)(a) !== a
+    @test Array(a) !== a
+    @test Array{eltype(a)}(a) !== a
+    @test Vector(a) !== a
 end
 @testset "reshaping SubArrays" begin
     a = collect(reshape(1:5, 1, 5))
@@ -479,12 +485,12 @@ end
 @testset "findmin findmax indmin indmax" begin
     @test indmax([10,12,9,11]) == 2
     @test indmin([10,12,9,11]) == 3
-    @test findmin([NaN,3.2,1.8]) == (1.8,3)
-    @test findmax([NaN,3.2,1.8]) == (3.2,2)
-    @test findmin([NaN,3.2,1.8,NaN]) == (1.8,3)
-    @test findmax([NaN,3.2,1.8,NaN]) == (3.2,2)
-    @test findmin([3.2,1.8,NaN,2.0]) == (1.8,2)
-    @test findmax([3.2,1.8,NaN,2.0]) == (3.2,1)
+    @test findmin([NaN,3.2,1.8]) === (NaN,1)
+    @test findmax([NaN,3.2,1.8]) === (NaN,1)
+    @test findmin([NaN,3.2,1.8,NaN]) === (NaN,1)
+    @test findmax([NaN,3.2,1.8,NaN]) === (NaN,1)
+    @test findmin([3.2,1.8,NaN,2.0]) === (NaN,3)
+    @test findmax([3.2,1.8,NaN,2.0]) === (NaN,3)
 
     #14085
     @test findmax(4:9) == (9,6)
@@ -631,7 +637,6 @@ end
     # issue 20564
     @test_throws MethodError repmat(1, 2, 3)
     @test_throws MethodError repmat([1, 2], 1, 2, 3)
-
 
     R = repeat([1, 2])
     @test R == [1, 2]
@@ -1154,7 +1159,6 @@ end
     @test isempty(eoa)
 end
 
-
 @testset "deleteat!" begin
     for idx in Any[1, 2, 5, 9, 10, 1:0, 2:1, 1:1, 2:2, 1:2, 2:4, 9:8, 10:9, 9:9, 10:10,
                    8:9, 9:10, 6:9, 7:10]
@@ -1631,7 +1635,6 @@ R = CartesianRange((3,0))
 @test @inferred(eachindex(zeros(3),view(zeros(3,3),1:2,1:2),zeros(2,2,2),zeros(2,2))) == CartesianRange((3,2,2))
 @test @inferred(eachindex(zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == 1:8
 
-
 @testset "rotates" begin
     a = [1 0 0; 0 0 0]
     @test rotr90(a,1) == [0 1; 0 0; 0 0]
@@ -1685,12 +1688,12 @@ end
     d = ones(Complex,6)
     @test_throws DimensionMismatch transpose!(a,d)
     @test_throws DimensionMismatch transpose!(d,a)
-    @test_throws DimensionMismatch ctranspose!(a,d)
-    @test_throws DimensionMismatch ctranspose!(d,a)
+    @test_throws DimensionMismatch adjoint!(a,d)
+    @test_throws DimensionMismatch adjoint!(d,a)
     @test_throws DimensionMismatch transpose!(b,c)
-    @test_throws DimensionMismatch ctranspose!(b,c)
+    @test_throws DimensionMismatch adjoint!(b,c)
     @test_throws DimensionMismatch transpose!(c,b)
-    @test_throws DimensionMismatch ctranspose!(c,b)
+    @test_throws DimensionMismatch adjoint!(c,b)
     transpose!(b,a)
     @test b == ones(Complex,5)
     b = ones(Complex,5)
@@ -1698,10 +1701,10 @@ end
     transpose!(a,b)
     @test a == ones(Complex,1,5)
     b = zeros(Complex,5)
-    ctranspose!(b,a)
+    adjoint!(b,a)
     @test b == ones(Complex,5)
     a = zeros(Complex,1,5)
-    ctranspose!(a,b)
+    adjoint!(a,b)
     @test a == ones(Complex,1,5)
 end
 
@@ -1740,13 +1743,12 @@ module RetTypeDecl
 end
 
 # range, range ops
-A = 1:5
-B = 1.5:5.5
-@test A + B == 2.5:2.0:10.5
+@test (1:5) + (1.5:5.5) == 2.5:2.0:10.5
 
 @testset "slicedim" begin
     for A in (reshape(collect(1:20), 4, 5),
               reshape(1:20, 4, 5))
+        local A
         @test slicedim(A, 1, 2) == collect(2:4:20)
         @test slicedim(A, 2, 2) == collect(5:8)
         @test_throws ArgumentError slicedim(A,0,1)
@@ -1784,9 +1786,11 @@ S = view(A, :, :)
 @test isequal(B, A)
 
 for (a,b) in zip(A, B)
+    local a,b
     @test a == b
 end
 for (a,s) in zip(A, S)
+    local a,s
     @test a == s
 end
 
@@ -1921,7 +1925,6 @@ let f = OOB_Functor([1,2])
     @test_throws BoundsError map(f, [1,2,3,4,5])
 end
 
-
 # issue 15654
 @test cumprod([5], 2) == [5]
 @test cumprod([1 2; 3 4], 3) == [1 2; 3 4]
@@ -2020,6 +2023,10 @@ end # module AutoRetType
         @test isa(hvcat((2,), densearray, densearray), Array)
         @test isa(cat((1,2), densearray, densearray), Array)
     end
+    @test isa([[1,2,3]'; [1,2,3]'], Matrix{Int})
+    @test isa([[1,2,3]' [1,2,3]'], RowVector{Int, Vector{Int}})
+    @test isa([Any[1.0, 2]'; Any[2.0, 2]'], Matrix{Any})
+    @test isa([Any[1.0, 2]' Any[2.0, 2']'], RowVector{Any, Vector{Any}})
     # Test that concatenations of heterogeneous Matrix-Vector pairs yield dense matrices
     @test isa(hcat(densemat, densevec), Array)
     @test isa(hcat(densevec, densemat), Array)

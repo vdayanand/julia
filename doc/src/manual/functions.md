@@ -163,7 +163,7 @@ A few special expressions correspond to calls to functions with non-obvious name
 | `[A B C ...]`     | [`hcat()`](@ref)       |
 | `[A; B; C; ...]`  | [`vcat()`](@ref)       |
 | `[A B; C D; ...]` | [`hvcat()`](@ref)      |
-| `A'`              | [`ctranspose()`](@ref) |
+| `A'`              | [`adjoint()`](@ref) |
 | `A.'`             | [`transpose()`](@ref)  |
 | `1:n`             | [`colon()`](@ref)      |
 | `A[i]`            | [`getindex()`](@ref)   |
@@ -266,6 +266,25 @@ end
 ```
 
 This has the exact same effect as the previous definition of `foo`.
+
+## Argument destructuring
+
+The destructuring feature can also be used within a function argument.
+If a function argument name is written as a tuple (e.g. `(x, y)`) instead of just
+a symbol, then an assignment `(x, y) = argument` will be inserted for you:
+
+```julia
+julia> minmax(x, y) = (y < x) ? (y, x) : (x, y)
+
+julia> range((min, max)) = max - min
+
+julia> range(minmax(10, 2))
+8
+```
+
+Notice the extra set of parentheses in the definition of `range`.
+Without those, `range` would be a two-argument function, and this example would
+not work.
 
 ## Varargs Functions
 

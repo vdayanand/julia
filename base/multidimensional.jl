@@ -394,7 +394,7 @@ wrapped with `LogicalIndex` upon calling `to_indices`.
 struct LogicalIndex{T, A<:AbstractArray{Bool}} <: AbstractVector{T}
     mask::A
     sum::Int
-    LogicalIndex{T,A}(mask::A) where {T,A<:AbstractArray{Bool}} = new(mask, countnz(mask))
+    LogicalIndex{T,A}(mask::A) where {T,A<:AbstractArray{Bool}} = new(mask, count(mask))
 end
 LogicalIndex(mask::AbstractVector{Bool}) = LogicalIndex{Int, typeof(mask)}(mask)
 LogicalIndex(mask::AbstractArray{Bool, N}) where {N} = LogicalIndex{CartesianIndex{N}, typeof(mask)}(mask)
@@ -416,7 +416,7 @@ end
     r = CartesianRange(indices(L.mask))
     return (r, start(r), 1)
 end
-@inline function next(L::LogicalIndex, s)
+@propagate_inbounds function next(L::LogicalIndex, s)
     # We're looking for the n-th true element, using iterator r at state i
     r, i, n = s
     while true
@@ -442,15 +442,6 @@ done(L::LogicalIndex, s) = s[3] > length(L)
 end
 @inline done(L::LogicalIndex{Int,<:BitArray}, s) = s[2] > length(L)
 
-# Checking bounds with LogicalIndex{Int} is tricky since we allow linear indexing over trailing dimensions
-@inline checkbounds_indices(::Type{Bool},IA::Tuple{},I::Tuple{LogicalIndex{Int,AbstractArray{Bool,N}}}) where {N} =
-    checkindex(Bool, IA, I[1])
-@inline checkbounds_indices(::Type{Bool},IA::Tuple{Any},I::Tuple{LogicalIndex{Int,AbstractArray{Bool,N}}}) where {N} =
-    checkindex(Bool, IA[1], I[1])
-@inline function checkbounds_indices(::Type{Bool}, IA::Tuple, I::Tuple{LogicalIndex{Int,AbstractArray{Bool,N}}}) where N
-    IA1, IArest = IteratorsMD.split(IA, Val(N))
-    checkindex(Bool, IA1, I[1])
-end
 @inline checkbounds(::Type{Bool}, A::AbstractArray, I::LogicalIndex{<:Any,<:AbstractArray{Bool,1}}) =
     linearindices(A) == linearindices(I.mask)
 @inline checkbounds(::Type{Bool}, A::AbstractArray, I::LogicalIndex) = indices(A) == indices(I.mask)
@@ -490,15 +481,8 @@ _maybe_linear_logical_index(::IndexLinear, A, i) = LogicalIndex{Int}(i)
     (uncolon(inds, I), to_indices(A, _maybetail(inds), tail(I))...)
 
 const CI0 = Union{CartesianIndex{0}, AbstractArray{CartesianIndex{0}}}
-uncolon(inds::Tuple{},    I::Tuple{Colon})              = Slice(OneTo(1))
 uncolon(inds::Tuple{},    I::Tuple{Colon, Vararg{Any}}) = Slice(OneTo(1))
-uncolon(inds::Tuple{},    I::Tuple{Colon, Vararg{CI0}}) = Slice(OneTo(1))
-uncolon(inds::Tuple{Any}, I::Tuple{Colon})              = Slice(inds[1])
-uncolon(inds::Tuple{Any}, I::Tuple{Colon, Vararg{Any}}) = Slice(inds[1])
-uncolon(inds::Tuple{Any}, I::Tuple{Colon, Vararg{CI0}}) = Slice(inds[1])
 uncolon(inds::Tuple,      I::Tuple{Colon, Vararg{Any}}) = Slice(inds[1])
-uncolon(inds::Tuple,      I::Tuple{Colon})              = Slice(OneTo(trailingsize(inds)))
-uncolon(inds::Tuple,      I::Tuple{Colon, Vararg{CI0}}) = Slice(OneTo(trailingsize(inds)))
 
 ### From abstractarray.jl: Internal multidimensional indexing definitions ###
 getindex(x::Number, i::CartesianIndex{0}) = x
@@ -574,9 +558,12 @@ end
 
 ##
 
+# small helper function since we cannot use a closure in a generated function
+_countnz(x) = x != 0
+
 @generated function findn(A::AbstractArray{T,N}) where {T,N}
     quote
-        nnzA = countnz(A)
+        nnzA = count(_countnz, A)
         @nexprs $N d->(I_d = Vector{Int}(nnzA))
         k = 1
         @nloops $N i A begin
@@ -841,9 +828,9 @@ end
 
 @noinline function _accumulate!(op, B, A, R1, ind, R2)
     # Copy the initial element in each 1d vector along dimension `axis`
-    i = first(ind)
+    ii = first(ind)
     @inbounds for J in R2, I in R1
-        B[I, i, J] = A[I, i, J]
+        B[I, ii, J] = A[I, ii, J]
     end
     # Accumulate
     @inbounds for J in R2, i in first(ind)+1:last(ind), I in R1
@@ -946,7 +933,7 @@ circshift!(dest::AbstractArray, src, ::Tuple{}) = copy!(dest, src)
 """
     circshift!(dest, src, shifts)
 
-Circularly shift the data in `src`, storing the result in
+Circularly shift, i.e. rotate, the data in `src`, storing the result in
 `dest`. `shifts` specifies the amount to shift in each dimension.
 
 The `dest` array must be distinct from the `src` array (they cannot
@@ -1301,7 +1288,7 @@ end
 
 @generated function findn(B::BitArray{N}) where N
     quote
-        nnzB = countnz(B)
+        nnzB = count(B)
         I = ntuple(x->Vector{Int}(nnzB), Val($N))
         if nnzB > 0
             count = 1
@@ -1543,26 +1530,23 @@ function extrema(A::AbstractArray, dims)
     return extrema!(B, A)
 end
 
-@generated function extrema!(B, A::AbstractArray{T,N}) where {T,N}
-    return quote
-        sA = size(A)
-        sB = size(B)
-        @nloops $N i B begin
-            AI = @nref $N A i
-            (@nref $N B i) = (AI, AI)
-        end
-        Bmax = sB
-        Istart = Int[sB[i] == 1 != sA[i] ? 2 : 1 for i = 1:ndims(A)]
-        @inbounds @nloops $N i d->(Istart[d]:size(A,d)) begin
-            AI = @nref $N A i
-            @nexprs $N d->(j_d = min(Bmax[d], i_{d}))
-            BJ = @nref $N B j
-            if AI < BJ[1]
-                (@nref $N B j) = (AI, BJ[2])
-            elseif AI > BJ[2]
-                (@nref $N B j) = (BJ[1], AI)
-            end
-        end
-        return B
+@noinline function extrema!(B, A)
+    sA = size(A)
+    sB = size(B)
+    for I in CartesianRange(sB)
+        AI = A[I]
+        B[I] = (AI, AI)
     end
+    Bmax = CartesianIndex(sB)
+    @inbounds @simd for I in CartesianRange(sA)
+        J = min(Bmax,I)
+        BJ = B[J]
+        AI = A[I]
+        if AI < BJ[1]
+            B[J] = (AI, BJ[2])
+        elseif AI > BJ[2]
+            B[J] = (BJ[1], AI)
+        end
+    end
+    return B
 end
