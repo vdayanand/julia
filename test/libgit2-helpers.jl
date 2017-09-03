@@ -3,6 +3,8 @@
 import Base.LibGit2: AbstractCredentials, UserPasswordCredentials, SSHCredentials,
     CachedCredentials, CredentialPayload, Payload
 
+const DEFAULT_PAYLOAD = CredentialPayload(allow_ssh_agent=false, allow_git_helpers=false)
+
 """
 Emulates the LibGit2 credential loop to allows testing of the credential_callback function
 without having to authenticate against a real server.
@@ -59,7 +61,7 @@ function credential_loop(
         valid_credential::UserPasswordCredentials,
         url::AbstractString,
         user::Nullable{<:AbstractString}=Nullable{String}(),
-        payload::CredentialPayload=CredentialPayload())
+        payload::CredentialPayload=DEFAULT_PAYLOAD)
     credential_loop(valid_credential, url, user, 0x000001, payload)
 end
 
@@ -67,7 +69,7 @@ function credential_loop(
         valid_credential::SSHCredentials,
         url::AbstractString,
         user::Nullable{<:AbstractString}=Nullable{String}(),
-        payload::CredentialPayload=CredentialPayload(allow_ssh_agent=false))
+        payload::CredentialPayload=DEFAULT_PAYLOAD)
     credential_loop(valid_credential, url, user, 0x000046, payload)
 end
 
@@ -75,6 +77,6 @@ function credential_loop(
         valid_credential::AbstractCredentials,
         url::AbstractString,
         user::AbstractString,
-        payload::CredentialPayload=CredentialPayload(allow_ssh_agent=false))
+        payload::CredentialPayload=DEFAULT_PAYLOAD)
     credential_loop(valid_credential, url, Nullable(user), payload)
 end

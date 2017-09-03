@@ -1226,8 +1226,9 @@ different URL.
 mutable struct CredentialPayload <: Payload
     explicit::Nullable{AbstractCredentials}
     cache::Nullable{CachedCredentials}
-    allow_ssh_agent::Bool  # Allow the use of the SSH agent to get credentials
-    allow_prompt::Bool     # Allow prompting the user for credentials
+    allow_ssh_agent::Bool    # Allow the use of the SSH agent to get credentials
+    allow_git_helpers::Bool  # Allow the use of git credential helpers
+    allow_prompt::Bool       # Allow prompting the user for credentials
 
     config::GitConfig
 
@@ -1236,6 +1237,7 @@ mutable struct CredentialPayload <: Payload
     first_pass::Bool
     use_ssh_agent::Bool
     use_env::Bool
+    use_git_helpers::Bool
     remaining_prompts::Int
 
     url::String
@@ -1248,9 +1250,10 @@ mutable struct CredentialPayload <: Payload
             cache::Nullable{CachedCredentials}=Nullable{CachedCredentials}(),
             config::GitConfig=GitConfig();
             allow_ssh_agent::Bool=true,
+            allow_git_helpers::Bool=true,
             allow_prompt::Bool=true)
 
-        payload = new(credential, cache, allow_ssh_agent, allow_prompt, config)
+        payload = new(credential, cache, allow_ssh_agent, allow_git_helpers, allow_prompt, config)
         return reset!(payload)
     end
 end
@@ -1275,6 +1278,7 @@ function reset!(p::CredentialPayload, config::GitConfig=p.config)
     p.first_pass = true
     p.use_ssh_agent = p.allow_ssh_agent
     p.use_env = true
+    p.use_git_helpers = p.allow_git_helpers
     p.remaining_prompts = p.allow_prompt ? 3 : 0
     p.url = ""
     p.scheme = ""
@@ -1297,6 +1301,9 @@ function approve(p::CredentialPayload)
     if !isnull(p.cache)
         approve(unsafe_get(p.cache), cred, p.url)
     end
+    if p.allow_git_helpers
+        approve(p.config, cred, p.url)
+    end
 end
 
 """
@@ -1311,5 +1318,8 @@ function reject(p::CredentialPayload)
 
     if !isnull(p.cache)
         reject(unsafe_get(p.cache), cred, p.url)
+    end
+    if p.allow_git_helpers
+        reject(p.config, cred, p.url)
     end
 end

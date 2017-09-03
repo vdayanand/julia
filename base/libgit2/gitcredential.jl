@@ -41,6 +41,13 @@ function GitCredential(cfg::GitConfig, url::AbstractString)
     fill!(cfg, parse(GitCredential, url))
 end
 
+function GitCredential(cred::UserPasswordCredentials, url::AbstractString)
+    git_cred = parse(GitCredential, url)
+    git_cred.username = Nullable{String}(cred.user)
+    git_cred.password = Nullable{String}(cred.pass)
+    return git_cred
+end
+
 function securezero!(cred::GitCredential)
     !isnull(cred.protocol) && securezero!(unsafe_get(cred.protocol))
     !isnull(cred.host) && securezero!(unsafe_get(cred.host))
@@ -234,4 +241,28 @@ function filter_username(cfg::GitConfig, cred::GitCredential)
     end
 
     return Nullable{String}()
+end
+
+approve(cfg::GitConfig, cred::AbstractCredentials, url::AbstractString) = nothing
+reject(cfg::GitConfig, cred::AbstractCredentials, url::AbstractString) = nothing
+
+function approve(cfg::GitConfig, cred::UserPasswordCredentials, url::AbstractString)
+    git_cred = GitCredential(cred, url)
+    for helper in filter_helpers(cfg, git_cred)
+        approve(helper, git_cred)
+    end
+
+    nothing
+end
+
+function reject(cfg::GitConfig, cred::UserPasswordCredentials, url::AbstractString)
+    git_cred = GitCredential(cred, url)
+    for helper in filter_helpers(cfg, git_cred)
+        reject(helper, git_cred)
+    end
+
+    securezero!(git_cred)
+    securezero!(cred)
+
+    nothing
 end
