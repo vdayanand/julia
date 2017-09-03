@@ -322,10 +322,23 @@ end
 end
 
 @testset "GitCredential" begin
-    @testset "empty" begin
+    @testset "missing" begin
         str = ""
         cred = read!(IOBuffer(str), LibGit2.GitCredential())
         @test cred == LibGit2.GitCredential()
+        @test sprint(write, cred) == str
+    end
+
+    @testset "empty" begin
+        str = """
+            protocol=
+            host=
+            path=
+            username=
+            password=
+            """
+        cred = read!(IOBuffer(str), LibGit2.GitCredential())
+        @test cred == LibGit2.GitCredential("", "", "", "", "")
         @test sprint(write, cred) == str
     end
 
@@ -337,7 +350,7 @@ end
             password=*****
             """
         cred = read!(IOBuffer(str), LibGit2.GitCredential())
-        @test cred == LibGit2.GitCredential("https", "example.com", "", "alice", "*****")
+        @test cred == LibGit2.GitCredential("https", "example.com", nothing, "alice", "*****")
         @test sprint(write, cred) == str
     end
 
@@ -355,8 +368,33 @@ end
             username=foo
             """
         cred = read!(IOBuffer(str), LibGit2.GitCredential())
-        @test cred == LibGit2.GitCredential("https", "b", "c", "foo", "")
+        @test cred == LibGit2.GitCredential("https", "b", "c", "foo", nothing)
         @test sprint(write, cred) == expected
+    end
+
+    @testset "ismatch" begin
+        # Equal
+        cred = LibGit2.GitCredential("https", "github.com")
+        @test LibGit2.ismatch("https://github.com", cred)
+
+        # Credential hostname is different
+        cred = LibGit2.GitCredential("https", "github.com")
+        @test !LibGit2.ismatch("https://myhost", cred)
+
+        # Credential is less specific than URL
+        cred = LibGit2.GitCredential("https")
+        @test !LibGit2.ismatch("https://github.com", cred)
+
+        # Credential is more specific than URL
+        cred = LibGit2.GitCredential("https", "github.com", "path", "user", "pass")
+        @test LibGit2.ismatch("https://github.com", cred)
+
+        # Credential needs to have an "" username to match
+        cred = LibGit2.GitCredential("https", "github.com", nothing, "")
+        @test LibGit2.ismatch("https://@github.com", cred)
+
+        cred = LibGit2.GitCredential("https", "github.com", nothing, nothing)
+        @test !LibGit2.ismatch("https://@github.com", cred)
     end
 end
 
@@ -1702,7 +1740,7 @@ mktempdir() do dir
         @test cred.pass != "password"
     end
 
-    @testset "GitCredential" begin
+    @testset "Git Credential Username" begin
         @testset "fill username" begin
             config_path = joinpath(dir, config_file)
             cfg = LibGit2.GitConfig(config_path, LibGit2.Consts.CONFIG_LEVEL_APP)
@@ -1712,32 +1750,35 @@ mktempdir() do dir
                 @test isempty(collect(LibGit2.GitConfigIter(cfg, r"credential.*")))
 
                 # No credential settings in configuration.
-                query = LibGit2.GitCredential("https", "github.com", "path")
-                filled = LibGit2.GitCredential("https", "github.com", "path")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "github.com")
+                username = LibGit2.filter_username(cfg, cred)
+                @test isnull(username)
 
                 # Add a credential setting for a specific for a URL
                 LibGit2.set!(cfg, "credential.https://github.com.username", "foo")
 
-                query = LibGit2.GitCredential("https", "github.com", "path")
-                filled = LibGit2.GitCredential("https", "github.com", "path", "foo")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "github.com")
+                username = LibGit2.filter_username(cfg, cred)
+                @test !isnull(username)
+                @test get(username) == "foo"
 
-                query = LibGit2.GitCredential("https", "mygithost", "path")
-                filled = LibGit2.GitCredential("https", "mygithost", "path")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "mygithost")
+                username = LibGit2.filter_username(cfg, cred)
+                @test isnull(username)
 
                 # Add a global credential setting after the URL specific setting. The first
                 # setting to match will be the one that is used.
                 LibGit2.set!(cfg, "credential.username", "bar")
 
-                query = LibGit2.GitCredential("https", "github.com", "path")
-                filled = LibGit2.GitCredential("https", "github.com", "path", "foo")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "github.com")
+                username = LibGit2.filter_username(cfg, cred)
+                @test !isnull(username)
+                @test get(username) == "foo"
 
-                query = LibGit2.GitCredential("https", "mygithost", "path")
-                filled = LibGit2.GitCredential("https", "mygithost", "path", "bar")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "mygithost")
+                username = LibGit2.filter_username(cfg, cred)
+                @test !isnull(username)
+                @test get(username) == "bar"
             finally
                 close(cfg)
                 rm(config_path)
@@ -1756,13 +1797,15 @@ mktempdir() do dir
                 LibGit2.set!(cfg, "credential.https://github.com.username", "")
                 LibGit2.set!(cfg, "credential.username", "name")
 
-                query = LibGit2.GitCredential("https", "github.com", "path")
-                filled = LibGit2.GitCredential("https", "github.com", "path", "")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "github.com")
+                username = LibGit2.filter_username(cfg, cred)
+                @test !isnull(username)
+                @test get(username) == ""
 
-                query = LibGit2.GitCredential("https", "mygithost", "path")
-                filled = LibGit2.GitCredential("https", "mygithost", "path", "name")
-                @test LibGit2.fill!(cfg, query) == filled
+                cred = LibGit2.GitCredential("https", "mygithost", "path")
+                username = LibGit2.filter_username(cfg, cred)
+                @test !isnull(username)
+                @test get(username) == "name"
             finally
                 close(cfg)
                 rm(config_path)
@@ -1794,7 +1837,7 @@ mktempdir() do dir
                 # Set HOME to control where .git-credentials file is written.
                 withenv((Sys.iswindows() ? "USERPROFILE" : "HOME") => dir) do
                     query = LibGit2.GitCredential("https", "mygithost")
-                    filled = LibGit2.GitCredential("https", "mygithost", "", "bob", "s3cre7")
+                    filled = LibGit2.GitCredential("https", "mygithost", nothing, "bob", "s3cre7")
 
                     @test LibGit2.fill!(helper, deepcopy(query)) == query
 

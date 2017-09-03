@@ -5,22 +5,36 @@ Git credential information used in communication with git credential helpers. Th
 named using the [input/output key specification](https://git-scm.com/docs/git-credential#IOFMT).
 """
 mutable struct GitCredential
-    protocol::String
-    host::String
-    path::String
-    username::String
-    password::String
+    protocol::Nullable{String}
+    host::Nullable{String}
+    path::Nullable{String}
+    username::Nullable{String}
+    password::Nullable{String}
 
     function GitCredential(
-            protocol::AbstractString="",
-            host::AbstractString="",
-            path::AbstractString="",
-            username::AbstractString="",
-            password::AbstractString="")
+            protocol::Nullable{<:AbstractString},
+            host::Nullable{<:AbstractString},
+            path::Nullable{<:AbstractString},
+            username::Nullable{<:AbstractString},
+            password::Nullable{<:AbstractString})
         c = new(protocol, host, path, username, password)
         finalizer(c, securezero!)
         return c
     end
+end
+
+function GitCredential(
+        protocol::Union{AbstractString,Void}=nothing,
+        host::Union{AbstractString,Void}=nothing,
+        path::Union{AbstractString,Void}=nothing,
+        username::Union{AbstractString,Void}=nothing,
+        password::Union{AbstractString,Void}=nothing)
+    GitCredential(
+        Nullable{String}(protocol),
+        Nullable{String}(host),
+        Nullable{String}(path),
+        Nullable{String}(username),
+        Nullable{String}(password))
 end
 
 function GitCredential(cfg::GitConfig, url::AbstractString)
@@ -28,20 +42,20 @@ function GitCredential(cfg::GitConfig, url::AbstractString)
 end
 
 function securezero!(cred::GitCredential)
-    securezero!(cred.protocol)
-    securezero!(cred.host)
-    securezero!(cred.path)
-    securezero!(cred.username)
-    securezero!(cred.password)
+    !isnull(cred.protocol) && securezero!(unsafe_get(cred.protocol))
+    !isnull(cred.host) && securezero!(unsafe_get(cred.host))
+    !isnull(cred.path) && securezero!(unsafe_get(cred.path))
+    !isnull(cred.username) && securezero!(unsafe_get(cred.username))
+    !isnull(cred.password) && securezero!(unsafe_get(cred.password))
     return cred
 end
 
 function Base.:(==)(a::GitCredential, b::GitCredential)
-    return a.protocol == b.protocol &&
-           a.host == b.host &&
-           a.path == b.path &&
-           a.username == b.username &&
-           a.password == b.password
+    isequal(a.protocol, b.protocol) &&
+    isequal(a.host, b.host) &&
+    isequal(a.path, b.path) &&
+    isequal(a.username, b.username) &&
+    isequal(a.password, b.password)
 end
 
 """
@@ -55,26 +69,26 @@ function ismatch(url::AbstractString, git_cred::GitCredential)
     m = match(URL_REGEX, url)
     m === nothing && error("Unable to parse URL")
 
-    # Empty URL parts match everything
-    m[:scheme] === nothing ? true : m[:scheme] == git_cred.protocol &&
-    m[:host] === nothing ? true : m[:host] == git_cred.host &&
-    m[:path] === nothing ? true : m[:path] == git_cred.path &&
-    m[:user] === nothing ? true : m[:user] == git_cred.username
+    # Note: missing URL groups match anything
+    (m[:scheme] === nothing ? true : isequal(Nullable(m[:scheme]), git_cred.protocol)) &&
+    (m[:host] === nothing ? true : isequal(Nullable(m[:host]), git_cred.host)) &&
+    (m[:path] === nothing ? true : isequal(Nullable(m[:path]), git_cred.path)) &&
+    (m[:user] === nothing ? true : isequal(Nullable(m[:user]), git_cred.username))
 end
 
 function isfilled(cred::GitCredential)
-    !isempty(cred.username) && !isempty(cred.password)
+    !isnull(cred.username) && !isnull(cred.password)
 end
 
 function Base.parse(::Type{GitCredential}, url::AbstractString)
     m = match(URL_REGEX, url)
     m === nothing && error("Unable to parse URL")
     return GitCredential(
-        m[:scheme] === nothing ? "" : m[:scheme],
+        m[:scheme],
         m[:host],
-        m[:path] === nothing ? "" : m[:path],
-        m[:user] === nothing ? "" : m[:user],
-        m[:password] === nothing ? "" : m[:password],
+        m[:path],
+        m[:user],
+        m[:password],
     )
 end
 
@@ -89,11 +103,11 @@ function Base.copy!(a::GitCredential, b::GitCredential)
 end
 
 function Base.write(io::IO, cred::GitCredential)
-    !isempty(cred.protocol) && println(io, "protocol=", cred.protocol)
-    !isempty(cred.host) && println(io, "host=", cred.host)
-    !isempty(cred.path) && println(io, "path=", cred.path)
-    !isempty(cred.username) && println(io, "username=", cred.username)
-    !isempty(cred.password) && println(io, "password=", cred.password)
+    !isnull(cred.protocol) && println(io, "protocol=", unsafe_get(cred.protocol))
+    !isnull(cred.host) && println(io, "host=", unsafe_get(cred.host))
+    !isnull(cred.path) && println(io, "path=", unsafe_get(cred.path))
+    !isnull(cred.username) && println(io, "username=", unsafe_get(cred.username))
+    !isnull(cred.password) && println(io, "password=", unsafe_get(cred.password))
     nothing
 end
 
@@ -107,7 +121,7 @@ function Base.read!(io::IO, cred::GitCredential)
             # https://git-scm.com/docs/git-credential#git-credential-codeurlcode
             copy!(cred, parse(GitCredential, value))
         else
-            setfield!(cred, Symbol(key), String(value))
+            setfield!(cred, Symbol(key), Nullable(String(value)))
         end
     end
 
@@ -115,29 +129,17 @@ function Base.read!(io::IO, cred::GitCredential)
 end
 
 function fill!(cfg::GitConfig, cred::GitCredential)
-    username = Nullable{String}()
-    for entry in GitConfigIter(cfg, r"credential.*")
-        section, url, name, value = split(entry)
+    # When the username is missing default to using the username set in the configuration
+    if isnull(cred.username)
+        cred.username = filter_username(cfg, cred)
+    end
 
-        # Only use configuration settings where the URL applies to the git credential
-        ismatch(url, cred) || continue
-
-        # https://git-scm.com/docs/gitcredentials#_configuration_options
-        if name == "helper"
-            helper = parse(GitCredentialHelper, value)
-            fill!(helper, cred)
-        elseif name == "username" && isnull(username)
-            username = Nullable{String}(value)
-        end
+    for helper in filter_helpers(cfg, cred)
+        fill!(helper, cred)
 
         # "Once Git has acquired both a username and a password, no more helpers will be
         # tried." – https://git-scm.com/docs/gitcredentials#gitcredentials-helper
-        isfilled(cred) && break
-    end
-
-    # Default to the configuration username when one is not filled in
-    if isempty(cred.username)
-        cred.username = Base.get(username, "")
+        !isfilled(cred) && break
     end
 
     return cred
@@ -191,3 +193,45 @@ end
 fill!(helper::GitCredentialHelper, cred::GitCredential) = run!(helper, "get", cred)
 approve(helper::GitCredentialHelper, cred::GitCredential) = run(helper, "store", cred)
 reject(helper::GitCredentialHelper, cred::GitCredential) = run(helper, "erase", cred)
+
+"""
+    filter_helpers(config, git_cred) -> Vector{GitCredentialHelper}
+
+Return all of the `GitCredentialHelper`s found within the provided `config` which are valid
+for the specified `git_cred`.
+"""
+function filter_helpers(cfg::GitConfig, cred::GitCredential)
+    helpers = GitCredentialHelper[]
+
+    # https://git-scm.com/docs/gitcredentials#gitcredentials-helper
+    for entry in GitConfigIter(cfg, r"credential.*\.helper")
+        section, url, name, value = split(entry)
+        @assert name == "helper"
+
+        # Only use configuration settings where the URL applies to the git credential
+        ismatch(url, cred) || continue
+        push!(helpers, parse(GitCredentialHelper, value))
+    end
+
+    return helpers
+end
+
+"""
+    filter_username(config, git_cred) -> Nullable{String}
+
+Return the default username, if any, provided by the `config` which is valid for the
+specified `git_cred`.
+"""
+function filter_username(cfg::GitConfig, cred::GitCredential)
+    # https://git-scm.com/docs/gitcredentials#gitcredentials-username
+    for entry in GitConfigIter(cfg, r"credential.*\.username")
+        section, url, name, value = split(entry)
+        @assert name == "username"
+
+        # Only use configuration settings where the URL applies to the git credential
+        ismatch(url, cred) || continue
+        return Nullable{String}(value)
+    end
+
+    return Nullable{String}()
+end
