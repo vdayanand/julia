@@ -256,8 +256,8 @@ function test_regular_io_ser(ref::Base.Distributed.AbstractRemoteRef)
         v = getfield(ref2, fld)
         if isa(v, Number)
             @test v === zero(typeof(v))
-        elseif isa(v, Nullable)
-            @test v === Nullable{Any}()
+        elseif isa(v, Union{Some, Null})
+            @test v === null
         else
             error(string("Add test for field ", fld))
         end
@@ -1416,8 +1416,8 @@ function Base.launch(manager::ErrorSimulator, params::Dict, launched::Array, c::
     io = open(detach(setenv(cmd, dir=dir)))
 
     wconfig = WorkerConfig()
-    wconfig.process = io
-    wconfig.io = io.out
+    wconfig.process = Some(io)
+    wconfig.io = Some(io.out)
     push!(launched, wconfig)
     notify(c)
 end
@@ -1773,8 +1773,8 @@ function Base.launch(manager::WorkerArgTester, params::Dict, launched::Array, c:
     manager.write_cookie && Base.Distributed.write_cookie(io)
 
     wconfig = WorkerConfig()
-    wconfig.process = io
-    wconfig.io = io.out
+    wconfig.process = Some(io)
+    wconfig.io = Some(io.out)
     push!(launched, wconfig)
 
     notify(c)

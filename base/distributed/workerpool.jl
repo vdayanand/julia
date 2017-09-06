@@ -185,7 +185,7 @@ performs a `remote_do` on it.
 """
 remote_do(f, pool::AbstractWorkerPool, args...; kwargs...) = remotecall_pool(remote_do, f, pool, args...; kwargs...)
 
-const _default_worker_pool = Ref{Nullable}(Nullable{WorkerPool}())
+const _default_worker_pool = Ref{Union{Some{WorkerPool}, Null}}(null)
 
 """
     default_worker_pool()
@@ -197,9 +197,9 @@ function default_worker_pool()
     # for the first time
     if isnull(_default_worker_pool[])
         if myid() == 1
-            _default_worker_pool[] = Nullable(WorkerPool())
+            _default_worker_pool[] = Some(WorkerPool())
         else
-            _default_worker_pool[] = Nullable(remotecall_fetch(()->default_worker_pool(), 1))
+            _default_worker_pool[] = Some(remotecall_fetch(()->default_worker_pool(), 1))
         end
     end
     return get(_default_worker_pool[])

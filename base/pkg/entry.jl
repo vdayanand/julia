@@ -318,7 +318,7 @@ function pin(pkg::AbstractString, head::AbstractString)
                     info("Package $pkg: checking out existing branch $branch")
                 else
                     info("Creating $pkg branch $branch")
-                    ref = Nullable(LibGit2.create_branch(repo, branch, commit))
+                    ref = Some(LibGit2.create_branch(repo, branch, commit))
                 end
 
                 # checkout selected branch

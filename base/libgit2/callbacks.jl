@@ -139,7 +139,7 @@ function authenticate_ssh(libgit2credptr::Ptr{Ptr{Void}}, p::CredentialPayload, 
         if isfile(cred.prvkey) && (stale || !isfile(cred.pubkey))
             response = Base.prompt("Public key location for '$url'", default=cred.pubkey)
             isnull(response) && return user_abort()
-            cred.pubkey = expanduser(unsafe_get(response))
+            cred.pubkey = expanduser(Base.get(response))
         end
 
         # Ask for a passphrase when the private key exists and requires a passphrase
@@ -149,11 +149,11 @@ function authenticate_ssh(libgit2credptr::Ptr{Ptr{Void}}, p::CredentialPayload, 
                     "Your SSH Key requires a password, please enter it now:",
                     "Passphrase required", cred.prvkey; prompt_username=false)
                 isnull(response) && return user_abort()
-                cred.pass = unsafe_get(response)[2]
+                cred.pass = Base.get(response)[2]
             else
                 response = Base.prompt("Passphrase for $(cred.prvkey)", password=true)
                 isnull(response) && return user_abort()
-                cred.pass = unsafe_get(response)
+                cred.pass = Base.get(response)
                 isempty(cred.pass) && return user_abort()  # Ambiguous if EOF or newline
             end
         end
@@ -192,16 +192,16 @@ function authenticate_userpass(libgit2credptr::Ptr{Ptr{Void}}, p::CredentialPayl
                 "Please enter your credentials for '$url'", "Credentials required",
                 username; prompt_username=true)
             isnull(response) && return user_abort()
-            cred.user, cred.pass = unsafe_get(response)
+            cred.user, cred.pass = Base.get(response)
         else
             response = Base.prompt("Username for '$url'", default=username)
             isnull(response) && return user_abort()
-            cred.user = unsafe_get(response)
+            cred.user = Base.get(response)
 
             url = git_url(scheme=p.scheme, host=p.host, username=cred.user)
             response = Base.prompt("Password for '$url'", password=true)
             isnull(response) && return user_abort()
-            cred.pass = unsafe_get(response)
+            cred.pass = Base.get(response)
             isempty(cred.pass) && return user_abort()  # Ambiguous if EOF or newline
         end
 
@@ -271,10 +271,10 @@ function credentials_callback(libgit2credptr::Ptr{Ptr{Void}}, url_ptr::Cstring,
         # modification only is in effect for the first callback since `allowed_types` cannot
         # be mutated.
         if !isnull(p.explicit)
-            cred = unsafe_get(p.explicit)
+            cred = Base.get(p.explicit)
 
             # Copy explicit credentials to avoid mutating approved credentials.
-            p.credential = Nullable(deepcopy(cred))
+            p.credential = Some(deepcopy(cred))
 
             if isa(cred, SSHCredentials)
                 allowed_types &= Cuint(Consts.CREDTYPE_SSH_KEY)
@@ -300,16 +300,16 @@ function credentials_callback(libgit2credptr::Ptr{Ptr{Void}}, url_ptr::Cstring,
 
     # use ssh key or ssh-agent
     if isset(allowed_types, Cuint(Consts.CREDTYPE_SSH_KEY))
-        if isnull(p.credential) || !isa(unsafe_get(p.credential), SSHCredentials)
-            p.credential = Nullable(SSHCredentials(p.username))
+        if isnull(p.credential) || !isa(Base.get(p.credential), SSHCredentials)
+            p.credential = Some(SSHCredentials(p.username))
         end
         err = authenticate_ssh(libgit2credptr, p, username_ptr)
         err == 0 && return err
     end
 
     if isset(allowed_types, Cuint(Consts.CREDTYPE_USERPASS_PLAINTEXT))
-        if isnull(p.credential) || !isa(unsafe_get(p.credential), UserPasswordCredentials)
-            p.credential = Nullable(UserPasswordCredentials(p.username))
+        if isnull(p.credential) || !isa(Base.get(p.credential), UserPasswordCredentials)
+            p.credential = Some(UserPasswordCredentials(p.username))
         end
         err = authenticate_userpass(libgit2credptr, p)
         err == 0 && return err

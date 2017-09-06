@@ -197,9 +197,9 @@ function Base.start(ci::GitConfigIter)
     err = ccall((:git_config_next, :libgit2), Cint,
                  (Ptr{Ptr{ConfigEntry}}, Ptr{Void}), entry_ptr_ptr, ci.ptr)
     if err == Cint(Error.GIT_OK)
-        state = Nullable{ConfigEntry}(unsafe_load(entry_ptr_ptr[]))
+        state = Some(unsafe_load(entry_ptr_ptr[]))
     elseif err == Cint(Error.ITEROVER)
-        state = Nullable{ConfigEntry}()
+        state = null
     else
         throw(GitError(err))
     end
@@ -214,9 +214,9 @@ function Base.next(ci::GitConfigIter, state)
     err = ccall((:git_config_next, :libgit2), Cint,
                  (Ptr{Ptr{ConfigEntry}}, Ptr{Void}), entry_ptr_ptr, ci.ptr)
     if err == Cint(Error.GIT_OK)
-        state = Nullable{ConfigEntry}(unsafe_load(entry_ptr_ptr[]))
+        state = Some(unsafe_load(entry_ptr_ptr[]))
     elseif err == Cint(Error.ITEROVER)
-        state = Nullable{ConfigEntry}()
+        state = null
     else
         throw(GitError(err))
     end

@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 function GitRebase(repo::GitRepo, branch::GitAnnotated, upstream::GitAnnotated;
-                   onto::Nullable{GitAnnotated}=Nullable{GitAnnotated}(),
+                   onto::Union{Some{GitAnnotated}, Null}=null,
                    opts::RebaseOptions = RebaseOptions())
     rebase_ptr_ptr = Ref{Ptr{Void}}(C_NULL)
     @check ccall((:git_rebase_init, :libgit2), Cint,

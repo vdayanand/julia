@@ -21,7 +21,7 @@ mutable struct Channel{T} <: AbstractChannel
     cond_take::Condition    # waiting for data to become available
     cond_put::Condition     # waiting for a writeable slot
     state::Symbol
-    excp::Nullable{Exception} # Exception to be thrown when state != :open
+    excp::Union{Some{Exception}, Null} # Exception to be thrown when state != :open
 
     data::Vector{T}
     sz_max::Int            # maximum size of channel
@@ -42,7 +42,7 @@ mutable struct Channel{T} <: AbstractChannel
         if sz < 0
             throw(ArgumentError("Channel size must be either 0, a positive integer or Inf"))
         end
-        ch = new(Condition(), Condition(), :open, Nullable{Exception}(), Vector{T}(0), sz, 0)
+        ch = new(Condition(), Condition(), :open, null, Vector{T}(0), sz, 0)
         if sz == 0
             ch.takers = Vector{Task}(0)
             ch.putters = Vector{Task}(0)
@@ -143,7 +143,7 @@ Closes a channel. An exception is thrown by:
 """
 function close(c::Channel)
     c.state = :closed
-    c.excp = Nullable{}(closed_exception())
+    c.excp = Some(closed_exception())
     notify_error(c)
     nothing
 end
@@ -238,7 +238,7 @@ function close_chnl_on_taskdone(t::Task, ref::WeakRef)
         !isopen(c) && return
         if istaskfailed(t)
             c.state = :closed
-            c.excp = Nullable{Exception}(task_result(t))
+            c.excp = Some(task_result(t))
             notify_error(c)
         else
             close(c)

@@ -582,23 +582,23 @@ function has_backslashes(mod::Module)
         h = has_backslashes(f)
         isnull(h) || return h
     end
-    return Nullable{Method}()
+    return null
 end
 function has_backslashes(f::Function)
     for m in methods(f)
         h = has_backslashes(m)
         isnull(h) || return h
     end
-    return Nullable{Method}()
+    return null
 end
 function has_backslashes(meth::Method)
     if '\\' in string(meth.file)
-        return Nullable{Method}(meth)
+        return Some(meth)
     else
-        return Nullable{Method}()
+        return null
     end
 end
-has_backslashes(x) = Nullable{Method}()
+has_backslashes(x) = null
 h16850 = has_backslashes(Base)
 if Sys.iswindows()
     if isnull(h16850)

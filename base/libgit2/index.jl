@@ -179,8 +179,8 @@ function Base.find(path::String, idx::GitIndex)
     pos_ref = Ref{Csize_t}(0)
     ret = ccall((:git_index_find, :libgit2), Cint,
                   (Ref{Csize_t}, Ptr{Void}, Cstring), pos_ref, idx.ptr, path)
-    ret == Cint(Error.ENOTFOUND) && return Nullable{Csize_t}()
-    return Nullable(pos_ref[]+1)
+    ret == Cint(Error.ENOTFOUND) && return null
+    return Some(pos_ref[]+1)
 end
 
 """
