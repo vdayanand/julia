@@ -78,7 +78,9 @@ while true
 end
 
 for outer p1 in workers()
+    global p1
     for outer p2 in workers()
+        global p2
         i1 = map_pid_ident[p1]
         i2 = map_pid_ident[p2]
         if (iseven(i1) && iseven(i2)) || (isodd(i1) && isodd(i2))
@@ -117,14 +119,16 @@ end
 
 # Initially only master-slave connections ought to be setup
 expected_num_conns = 8
-num_conns = sum(asyncmap(p->remotecall_fetch(count_connected_workers,p), workers()))
-@test num_conns == expected_num_conns
+let num_conns = sum(asyncmap(p->remotecall_fetch(count_connected_workers,p), workers()))
+    @test num_conns == expected_num_conns
+end
 
 for (i, (from,to)) in enumerate(combinations)
     remotecall_wait(topid->remotecall_fetch(myid, topid), from, to)
-    expected_num_conns += 2    # one connection endpoint on both from and to
-    num_conns = sum(asyncmap(p->remotecall_fetch(count_connected_workers,p), workers()))
-    @test num_conns == expected_num_conns
+    global expected_num_conns += 2    # one connection endpoint on both from and to
+    let num_conns = sum(asyncmap(p->remotecall_fetch(count_connected_workers,p), workers()))
+        @test num_conns == expected_num_conns
+    end
 end
 
 # With lazy=false, all connections ought to be setup during `addprocs`
