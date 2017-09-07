@@ -1718,9 +1718,9 @@
 (define (expand-for while lhs X body)
   ;; (for (= lhs X) body)
   (let* ((coll   (make-ssavalue))
-	 (state  (gensy))
-	 (outer? (and (pair? lhs) (eq? (car lhs) 'outer)))
-	 (lhs    (if outer? (cadr lhs) lhs)))
+         (state  (gensy))
+         (outer? (and (pair? lhs) (eq? (car lhs) 'outer)))
+         (lhs    (if outer? (cadr lhs) lhs)))
     `(block (= ,coll ,(expand-forms X))
             (= ,state (call (top start) ,coll))
             ;; TODO avoid `local declared twice` error from this
@@ -2283,15 +2283,15 @@
    'while
    (lambda (e)
      `(break-block loop-exit
-		   (_while ,(expand-forms (cadr e))
-			   (break-block loop-cont
-					(scope-block ,(blockify (expand-forms (caddr e))))))))
+                   (_while ,(expand-forms (cadr e))
+                           (break-block loop-cont
+                                        (scope-block ,(blockify (expand-forms (caddr e))))))))
 
    'inner-while
    (lambda (e)
      `(_while ,(expand-forms (cadr e))
-	      (break-block loop-cont
-			   (scope-block ,(blockify (expand-forms (caddr e)))))))
+              (break-block loop-cont
+                           (scope-block ,(blockify (expand-forms (caddr e)))))))
 
    'break
    (lambda (e)
@@ -2570,10 +2570,15 @@
 (define (find-local-def-decls e) (find-decls 'local-def e))
 (define (find-global-decls e) (find-decls 'global e))
 
-(define (implicit-locals e env glob)
+(define (implicit-locals e env deprecated-env glob)
   ;; const decls on non-globals introduce locals
   (append! (diff (find-decls 'const e) glob)
-           (find-assigned-vars e env)))
+           (filter
+             (lambda (v)
+               (if (memq v deprecated-env)
+                   (begin (syntax-deprecation #f (string "implicit assignment to global variable `" v "`") (string "global " v)) #f)
+                   #t))
+             (find-assigned-vars e env))))
 
 (define (unbound-vars e bound tab)
   (cond ((or (eq? e 'true) (eq? e 'false) (eq? e UNUSED)) tab)
@@ -2600,9 +2605,9 @@
         ((eq? (car e) 'local-def) '(null)) ;; remove local decls
         ((eq? (car e) 'implicit-global) '(null)) ;; remove implicit-global decls
         ((eq? (car e) 'warn-if-existing)
-	 (if (or (memq (cadr e) outerglobals) (memq (cadr e) implicitglobals))
-	     `(warn-loop-var ,(cadr e))
-	     '(null)))
+         (if (or (memq (cadr e) outerglobals) (memq (cadr e) implicitglobals))
+             `(warn-loop-var ,(cadr e))
+             '(null)))
         ((eq? (car e) 'lambda)
          (let* ((lv (lam:vars e))
                 (env (append lv env))
@@ -2619,7 +2624,7 @@
         ((eq? (car e) 'scope-block)
          (let* ((blok (cadr e)) ;; body of scope-block expression
                 (other-locals (if lam (caddr lam) '())) ;; locals that are explicitly part of containing lambda expression
-                (iglo (find-decls 'implicit-global blok)) ;; globals defined implicitly outside blok
+                (iglo (find-decls 'implicit-global blok)) ;; globals possibly defined implicitly outside blok
                 (glob (diff (find-global-decls blok) iglo)) ;; all globals declared in blok
                 (vars-def (check-dups (find-local-def-decls blok) '()))
                 (locals-declared (check-dups (find-local-decls blok) vars-def))
@@ -2627,7 +2632,8 @@
                                    blok
                                    ;; being declared global prevents a variable
                                    ;; assignment from introducing a local
-                                   (append env glob iglo outerglobals locals-declared vars-def)
+                                   (append env glob iglo locals-declared vars-def)
+                                   outerglobals
                                    (append glob iglo)))
                 (vars (delete-duplicates (append! locals-declared locals-implicit)))
                 (all-vars (append vars vars-def))
@@ -2664,7 +2670,7 @@
                                                           (memq var implicitglobals) ;; remove anything only added implicitly in the last scope block
                                                           (memq var glob))))) ;; remove anything that's now global
                                              renames)))
-                (new-oglo (append iglo outerglobals)) ;; list of all outer-globals from outside blok
+                (new-oglo (append iglo outerglobals)) ;; list of all implicit-globals from outside blok
                 (body (resolve-scopes- blok new-env new-oglo new-iglo lam new-renames #f))
                 (real-new-vars (append (diff vars need-rename) renamed))
                 (real-new-vars-def (append (diff vars-def need-rename-def) renamed-def)))
