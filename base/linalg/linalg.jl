@@ -238,6 +238,31 @@ end
 copy_oftype(A::AbstractArray{T}, ::Type{T}) where {T} = copy(A)
 copy_oftype(A::AbstractArray{T,N}, ::Type{S}) where {T,N,S} = convert(AbstractArray{S,N}, A)
 
+function copy_transpose!(B::AbstractVecOrMat, ir_dest::Range{Int}, jr_dest::Range{Int},
+    A::AbstractVecOrMat, ir_src::Range{Int}, jr_src::Range{Int})
+    if length(ir_dest) != length(jr_src)
+        throw(ArgumentError(string("source and destination must have same size (got ",
+              length(jr_src)," and ",length(ir_dest),")")))
+    end
+    if length(jr_dest) != length(ir_src)
+        throw(ArgumentError(string("source and destination must have same size (got ",
+              length(ir_src)," and ",length(jr_dest),")")))
+    end
+    @boundscheck checkbounds(B, ir_dest, jr_dest)
+    @boundscheck checkbounds(A, ir_src, jr_src)
+    idest = first(ir_dest)
+    for jsrc in jr_src
+        jdest = first(jr_dest)
+        for isrc in ir_src
+            B[idest,jdest] = A[isrc,jsrc]
+            jdest += step(jr_dest)
+        end
+        idest += step(ir_dest)
+    end
+    return B
+end
+
+
 include("conjarray.jl")
 include("transpose.jl")
 include("rowvector.jl")

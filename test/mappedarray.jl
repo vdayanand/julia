@@ -9,7 +9,7 @@ b = @inferred(MappedArray(x -> x + 10, a))::MappedArray
 @test_throws ErrorException b[2] = 20
 c = @inferred(MappedArray(x -> x + 10, x -> x - 10, a))::MappedArray
 @test c[2] === 12
-@test (c[2] = 20; c[2] === 10)
-@test (c[3] = 30.0; c[3] === 20)
+@test (c[2] = 20; a[2] === 10)
+@test (c[3] = 30.0; a[3] === 20)
 
 @test Base.IndexStyle(b) === Base.IndexStyle(a)
