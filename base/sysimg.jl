@@ -219,6 +219,8 @@ using .Cartesian
 include("multidimensional.jl")
 include("permuteddimsarray.jl")
 using .PermutedDimsArrays
+include("mappedarray.jl")
+using .MappedArrays
 
 # nullable types
 include("nullable.jl")
