@@ -264,7 +264,7 @@ end
 
 
 include("conjarray.jl")
-include("transpose.jl")
+include("adjoint.jl")
 include("rowvector.jl")
 
 include("exceptions.jl")
@@ -296,7 +296,6 @@ include("special.jl")
 include("bitarray.jl")
 include("ldlt.jl")
 include("schur.jl")
-
 
 include("arpack.jl")
 include("arnoldi.jl")
