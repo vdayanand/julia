@@ -46,7 +46,7 @@ struct MappedArray{T, N, F, F_inv, A <: AbstractArray{<:Any, N}} <: AbstractArra
 end
 
 MappedArray(f, a::AbstractArray) = MappedArray(f, inv_func(f), a)
-function MappedArray(f, f_inv, a::AbstractArray) 
+function MappedArray(f, f_inv, a::AbstractArray)
     MappedArray{Base.promote_op(f, eltype(a)), ndims(a), typeof(f), typeof(f_inv), typeof(a)}(f, f_inv, a)
 end
 
