@@ -51,6 +51,9 @@ function MappedArray(f, f_inv, a::AbstractArray)
 end
 
 noinverse(x) = error("No inverse function defined")
+∘(::typeof(noinverse), ::Any) = noinverse
+∘(::Any, ::typeof(noinverse)) = noinverse
+∘(::typeof(noinverse), ::typeof(noinverse)) = noinverse
 
 inv_func(f) = noinverse
 inv_func(::typeof(identity)) = identity
@@ -82,5 +85,8 @@ end
 Base.@propagate_inbounds function Base.setindex!(a::MappedArray{T}, v, i::Int...) where {T}
     a[i...] = convert(T, v)
 end
+
+# MappedArray preserves laziness under `map`
+Base.map(f, a::MappedArray) = MappedArray(f ∘ a.f, inv_func(f) ∘ a.f_inv, a.parent)
 
 end # module

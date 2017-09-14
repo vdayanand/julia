@@ -146,6 +146,7 @@ include("multinverses.jl")
 using .MultiplicativeInverses
 include("abstractarraymath.jl")
 include("arraymath.jl")
+include("rowvector.jl")
 
 # define MIME"foo/bar" early so that we can overload 3-arg show
 struct MIME{mime} end

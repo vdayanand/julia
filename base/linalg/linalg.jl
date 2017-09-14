@@ -10,8 +10,9 @@ import Base: USE_BLAS64, abs, big, broadcast, ceil, conj, convert, copy, copy!,
     hcat, imag, indices, inv, isapprox, isone, IndexStyle, kron, length, log, map,
     ndims, oneunit, parent, power_by_squaring, print_matrix, promote_rule, real, round,
     setindex!, show, similar, size, sqrt, transpose, trunc, typed_hcat
+import Base.MappedArrays: inv_func
 using Base: hvcat_fill, iszero, IndexLinear, _length, promote_op, promote_typeof,
-    @propagate_inbounds, @pure, reduce, typed_vcat
+    @propagate_inbounds, @pure, reduce, transpose_f!, typed_vcat
 # We use `_length` because of non-1 indices; releases after julia 0.5
 # can go back to `length`. `_length(A)` is equivalent to `length(linearindices(A))`.
 
@@ -238,8 +239,8 @@ end
 copy_oftype(A::AbstractArray{T}, ::Type{T}) where {T} = copy(A)
 copy_oftype(A::AbstractArray{T,N}, ::Type{S}) where {T,N,S} = convert(AbstractArray{S,N}, A)
 
-function copy_transpose!(B::AbstractVecOrMat, ir_dest::Range{Int}, jr_dest::Range{Int},
-    A::AbstractVecOrMat, ir_src::Range{Int}, jr_src::Range{Int})
+function copy_transpose!(B::AbstractVecOrMat, ir_dest::AbstractRange{Int}, jr_dest::AbstractRange{Int},
+    A::AbstractVecOrMat, ir_src::AbstractRange{Int}, jr_src::AbstractRange{Int})
     if length(ir_dest) != length(jr_src)
         throw(ArgumentError(string("source and destination must have same size (got ",
               length(jr_src)," and ",length(ir_dest),")")))
@@ -263,7 +264,6 @@ function copy_transpose!(B::AbstractVecOrMat, ir_dest::Range{Int}, jr_dest::Rang
 end
 
 
-include("conjarray.jl")
 include("adjoint.jl")
 include("rowvector.jl")
 
