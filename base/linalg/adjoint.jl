@@ -12,7 +12,7 @@ Conceptually, this is intended create the "dual vector" of `v` (note however tha
 is strictly an `AbstractMatrix`). Note also that the output is a view of `v`.
 """
 @inline adjoint(vec::AbstractVector) = RowVector(_map(adjoint, vec))
-@inline adjoint(rowvec::RowVector) = _adjoint(parent(rowvec))
+@inline adjoint(rowvec::RowVector) = _map(adjoint, parent(rowvec))
 
 """
     adjoint(m::AbstractMatrix)
@@ -22,7 +22,7 @@ recursively to the elements.
 """
 function adjoint(a::AbstractMatrix)
     (ind1, ind2) = indices(a)
-    b = similar(a, adjoint_type(eltype(a)), (ind2, ind1))
+    b = similar(a, promote_op(adjoint, eltype(a)), (ind2, ind1))
     adjoint!(b, a)
 end
 
