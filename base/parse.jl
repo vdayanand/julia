@@ -198,8 +198,8 @@ end
 """
     tryparse(type, str, [base])
 
-Like [`parse`](@ref), but returns an [`Option`](@ref) of the requested type. The result
-will be [`null`](@ref) if the string does not contain a valid number.
+Like [`parse`](@ref), but returns either a [`Some`](@ref) object wrapping a value
+of the requested type, or [`null`](@ref) if the string does not contain a valid number.
 """
 tryparse(::Type{T}, s::AbstractString, base::Integer) where {T<:Integer} =
     tryparse_internal(T, s, start(s), endof(s), check_valid_base(base), false)
