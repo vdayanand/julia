@@ -9,8 +9,6 @@ using Base: linearindices, tail, OneTo, to_shape,
 import Base: broadcast, broadcast!
 export broadcast_getindex, broadcast_setindex!, dotview, @__dot__
 
-const ScalarType = Union{Type{Any}, Type{Some}}
-
 ## Broadcasting utilities ##
 # fallbacks for some special cases
 @inline broadcast(f, x::Number...) = f(x...)
@@ -28,7 +26,6 @@ _containertype(::Type{<:Ptr}) = Any
 _containertype(::Type{<:Tuple}) = Tuple
 _containertype(::Type{<:Ref}) = Array
 _containertype(::Type{<:AbstractArray}) = Array
-_containertype(::Type{<:Some}) = Some
 containertype(x) = _containertype(typeof(x))
 containertype(ct1, ct2) = promote_containertype(containertype(ct1), containertype(ct2))
 @inline containertype(ct1, ct2, cts...) = promote_containertype(containertype(ct1), containertype(ct2, cts...))
@@ -36,10 +33,8 @@ containertype(ct1, ct2) = promote_containertype(containertype(ct1), containertyp
 promote_containertype(::Type{Array}, ::Type{Array}) = Array
 promote_containertype(::Type{Array}, ct) = Array
 promote_containertype(ct, ::Type{Array}) = Array
-promote_containertype(::Type{Tuple}, ::ScalarType) = Tuple
-promote_containertype(::ScalarType, ::Type{Tuple}) = Tuple
-promote_containertype(::Type{Any}, ::Type{Some}) = Some
-promote_containertype(::Type{Some}, ::Type{Any}) = Some
+promote_containertype(::Type{Tuple}, ::Type{Any}) = Tuple
+promote_containertype(::Type{Any}, ::Type{Tuple}) = Tuple
 promote_containertype(::Type{T}, ::Type{T}) where {T} = T
 
 ## Calculate the broadcast indices of the arguments, or error if incompatible
@@ -47,7 +42,7 @@ promote_containertype(::Type{T}, ::Type{T}) where {T} = T
 broadcast_indices() = ()
 broadcast_indices(A) = broadcast_indices(containertype(A), A)
 @inline broadcast_indices(A, B...) = broadcast_shape(broadcast_indices(A), broadcast_indices(B...))
-broadcast_indices(::ScalarType, A) = ()
+broadcast_indices(::Type{Any}, A) = ()
 broadcast_indices(::Type{Tuple}, A) = (OneTo(length(A)),)
 broadcast_indices(::Type{Array}, A::Ref) = ()
 broadcast_indices(::Type{Array}, A) = indices(A)
@@ -128,7 +123,7 @@ end
 
 Base.@propagate_inbounds _broadcast_getindex(A, I) = _broadcast_getindex(containertype(A), A, I)
 Base.@propagate_inbounds _broadcast_getindex(::Type{Array}, A::Ref, I) = A[]
-Base.@propagate_inbounds _broadcast_getindex(::ScalarType, A, I) = A
+Base.@propagate_inbounds _broadcast_getindex(::Type{Any}, A, I) = A
 Base.@propagate_inbounds _broadcast_getindex(::Any, A, I) = A[I]
 
 ## Broadcasting core
@@ -288,8 +283,8 @@ maptoTuple(f, a, b...) = Tuple{f(a), maptoTuple(f, b...).types...}
 #     A, broadcast_indices(A)
 # )::_broadcast_getindex_eltype(A)
 _broadcast_getindex_eltype(A) = _broadcast_getindex_eltype(containertype(A), A)
-_broadcast_getindex_eltype(::ScalarType, T::Type) = Type{T}
-_broadcast_getindex_eltype(::ScalarType, A) = typeof(A)
+_broadcast_getindex_eltype(::Type{Any}, T::Type) = Type{T}
+_broadcast_getindex_eltype(::Type{Any}, A) = typeof(A)
 _broadcast_getindex_eltype(::Any, A) = eltype(A)  # Tuple, Array, etc.
 
 # Inferred eltype of result of broadcast(f, xs...)
@@ -309,9 +304,6 @@ _broadcast_eltype(f, A, As...) =
     end
     return broadcast_t(f, Any, shape, iter, A, Bs...)
 end
-_get(x::Union{Some, Null}) = get(x)
-_get(x::Any) = x
-@inline broadcast_c(f, ::Type{Some}, a...) = Some(f(map(_get, a)...))
 @inline broadcast_c(f, ::Type{Any}, a...) = f(a...)
 @inline broadcast_c(f, ::Type{Tuple}, A, Bs...) =
     tuplebroadcast(f, first_tuple(A, Bs...), A, Bs...)
@@ -328,10 +320,10 @@ tuplebroadcast_getargs(::Tuple{}, k) = ()
 """
     broadcast(f, As...)
 
-Broadcasts the arrays, tuples, `Ref`s, `Some`s, and/or scalars `As` to a
+Broadcasts the arrays, tuples, `Ref`s and/or scalars `As` to a
 container of the appropriate type and dimensions. In this context, anything
-that is not a subtype of `AbstractArray`, `Ref` (except for `Ptr`s), `Tuple`,
-or `Some` is considered a scalar. The resulting container is established by
+that is not a subtype of `AbstractArray`, `Ref` (except for `Ptr`s) or `Tuple`
+is considered a scalar. The resulting container is established by
 the following rules:
 
  - If all the arguments are scalars, it returns a scalar.
@@ -339,10 +331,6 @@ the following rules:
  - If the arguments contain at least one array or `Ref`, it returns an array
    (expanding singleton dimensions), and treats `Ref`s as 0-dimensional arrays,
    and tuples as 1-dimensional arrays.
-
-The following additional rule applies to `Some` arguments: If there is at
-least one `Some`, and all the arguments are scalars or `Some`, it
-returns a `Some` treating `Some`s as "containers".
 
 A special syntax exists for broadcasting: `f.(args...)` is equivalent to
 `broadcast(f, args...)`, and nested `f.(g.(args...))` calls are fused into a
@@ -402,14 +390,6 @@ julia> string.(("one","two","three","four"), ": ", 1:4)
  "three: 3"
  "four: 4"
 
-julia> Some("X") .* "Y"
-Some("XY")
-
-julia> broadcast(/, 1.0, Some(2.0))
-Some(0.5)
-
-julia> 1 ./ null
-null
 ```
 """
 @inline broadcast(f, A, Bs...) = broadcast_c(f, containertype(A, Bs...), A, Bs...)
