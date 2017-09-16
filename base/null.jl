@@ -38,8 +38,6 @@ convert(::Type{Some{T}}, x::Some) where {T} = Some{T}(convert(T, x.value))
 convert(::Type{Null}, ::Null) = null
 convert(::Type{Null}, ::Any) = throw(NullException())
 
-convert(::Type{Union{Some{T}, Null}}, x::Some) where {T} = convert(Some{T}, x)
-
 show(io::IO, ::Null) = print(io, "null")
 
 function show(io::IO, x::Some)

@@ -4,38 +4,38 @@ abstract type ClusterManager end
 
 mutable struct WorkerConfig
     # Common fields relevant to all cluster managers
-    io::Union{Some{IO}, Null}
-    host::Union{Some{AbstractString}, Null}
-    port::Union{Some{Integer}, Null}
+    io::Union{Some{<:IO}, Null}
+    host::Union{Some{<:AbstractString}, Null}
+    port::Union{Some{<:Integer}, Null}
 
     # Used when launching additional workers at a host
     count::Union{Some{Union{Int, Symbol}}, Null}
-    exename::Union{Some{Union{AbstractString, Cmd}}, Null}
+    exename::Union{Some{<:Union{AbstractString, Cmd}}, Null}
     exeflags::Union{Some{Cmd}, Null}
 
     # External cluster managers can use this to store information at a per-worker level
     # Can be a dict if multiple fields need to be stored.
-    userdata::Union{Some{Any}, Null}
+    userdata::Union{Some{<:Any}, Null}
 
     # SSHManager / SSH tunnel connections to workers
     tunnel::Union{Some{Bool}, Null}
-    bind_addr::Union{Some{AbstractString}, Null}
+    bind_addr::Union{Some{<:AbstractString}, Null}
     sshflags::Union{Some{Cmd}, Null}
     max_parallel::Union{Some{Integer}, Null}
 
     # Used by Local/SSH managers
-    connect_at::Union{Some{Any}, Null}
+    connect_at::Union{Some{<:Any}, Null}
 
-    process::Union{Some{Process}, Null}
-    ospid::Union{Some{Integer}, Null}
+    process::Union{Some{<:Process}, Null}
+    ospid::Union{Some{<:Integer}, Null}
 
     # Private dictionary used to store temporary information by Local/SSH managers.
-    environ::Union{Some{Dict}, Null}
+    environ::Union{Some{<:Dict}, Null}
 
     # Connections to be setup depending on the network topology requested
-    ident::Union{Some{Any}, Null}      # Worker as identified by the Cluster Manager.
+    ident::Union{Some{<:Any}, Null}      # Worker as identified by the Cluster Manager.
     # List of other worker idents this worker must connect with. Used with topology T_CUSTOM.
-    connect_idents::Union{Some{Array}, Null}
+    connect_idents::Union{Some{<:Array}, Null}
 
     # Run multithreaded blas on worker
     enable_threaded_blas::Union{Some{Bool}, Null}
@@ -57,9 +57,9 @@ mutable struct Worker
     add_msgs::Array{Any,1}
     gcflag::Bool
     state::WorkerState
-    c_state::Condition                     # wait for state changes
-    ct_time::Float64                       # creation time
-    conn_func::Union{Some{Function}, Null} # Used to setup connections lazily
+    c_state::Condition                       # wait for state changes
+    ct_time::Float64                         # creation time
+    conn_func::Union{Some{<:Function}, Null} # Used to setup connections lazily
 
     r_stream::IO
     w_stream::IO

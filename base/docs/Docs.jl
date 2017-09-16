@@ -142,7 +142,7 @@ linenumber, source code, and fielddocs.
 """
 mutable struct DocStr
     text   :: Core.SimpleVector
-    object :: Union{Some{Any}, Null}
+    object :: Union{Some{<:Any}, Null}
     data   :: Dict{Symbol, Any}
 end
 

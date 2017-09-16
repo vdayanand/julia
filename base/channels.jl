@@ -18,13 +18,13 @@ Other constructors:
 * `Channel(sz)`: equivalent to `Channel{Any}(sz)`
 """
 mutable struct Channel{T} <: AbstractChannel
-    cond_take::Condition    # waiting for data to become available
-    cond_put::Condition     # waiting for a writeable slot
+    cond_take::Condition                 # waiting for data to become available
+    cond_put::Condition                  # waiting for a writeable slot
     state::Symbol
-    excp::Union{Some{Exception}, Null} # Exception to be thrown when state != :open
+    excp::Union{Some{<:Exception}, Null} # Exception to be thrown when state != :open
 
     data::Vector{T}
-    sz_max::Int            # maximum size of channel
+    sz_max::Int                          # maximum size of channel
 
     # Used when sz_max == 0, i.e., an unbuffered channel.
     waiters::Int

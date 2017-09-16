@@ -1184,13 +1184,13 @@ A `CredentialPayload` instance is expected to be `reset!` whenever it will be us
 different URL.
 """
 mutable struct CredentialPayload <: Payload
-    explicit::Union{Some{AbstractCredentials}, Null}
+    explicit::Union{Some{<:AbstractCredentials}, Null}
     cache::Union{Some{CachedCredentials}, Null}
     allow_ssh_agent::Bool  # Allow the use of the SSH agent to get credentials
     allow_prompt::Bool     # Allow prompting the user for credentials
 
     # Ephemeral state fields
-    credential::Union{Some{AbstractCredentials}, Null}
+    credential::Union{Some{<:AbstractCredentials}, Null}
     first_pass::Bool
     use_ssh_agent::Bool
     use_env::Bool

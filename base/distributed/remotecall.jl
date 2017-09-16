@@ -16,10 +16,10 @@ mutable struct Future <: AbstractRemoteRef
     where::Int
     whence::Int
     id::Int
-    v::Union{Some{Any}, Null}
+    v::Union{Some{<:Any}, Null}
 
     Future(w::Int, rrid::RRID) = Future(w, rrid, null)
-    Future(w::Int, rrid::RRID, v::Union{Some{Any}, Null}) =
+    Future(w::Int, rrid::RRID, v::Union{Some{<:Any}, Null}) =
         (r = new(w,rrid.whence,rrid.id,v); return test_existing_ref(r))
 
     Future(t::Tuple) = new(t[1],t[2],t[3],t[4])  # Useful for creating dummy, zeroed-out instances
