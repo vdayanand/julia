@@ -33,7 +33,7 @@ length(t::NamedTuple) = nfields(t)
 start(t::NamedTuple) = 1
 done(t::NamedTuple, iter) = iter > nfields(t)
 next(t::NamedTuple, iter) = (getfield(t, iter), iter + 1)
-endof(t::NamedTuple) = length(t)
+endof(t::NamedTuple) = nfields(t)
 getindex(t::NamedTuple, i::Int) = getfield(t, i)
 getindex(t::NamedTuple, i::Symbol) = getfield(t, i)
 
@@ -49,7 +49,7 @@ function convert(::Type{NamedTuple{names,T}}, itr) where {names,T}
 end
 
 function show(io::IO, t::NamedTuple)
-    n = length(t)
+    n = nfields(t)
     if n == 0
         print(io, "NamedTuple()")
     else
