@@ -9,6 +9,16 @@
     end
 end
 
+@generated function namedtuple(NT::Type{NamedTuple{names,T}}, args...) where {names, T <: Tuple}
+    N = length(names)
+    types = T.parameters
+    if length(args) == N
+        Expr(:new, :(NamedTuple{names,T}), Any[ :(convert($(types[i]), args[$i])) for i in 1:N ]...)
+    else
+        :(throw(ArgumentError("wrong number of arguments to named tuple constructor")))
+    end
+end
+
 NamedTuple() = namedtuple(NamedTuple{()})
 
 """
@@ -35,7 +45,7 @@ end
 convert(::Type{NamedTuple{names,T}}, itr::NamedTuple{names,T}) where {names,T} = itr
 
 function convert(::Type{NamedTuple{names,T}}, itr) where {names,T}
-    namedtuple(NamedTuple{names}, T(itr)...)
+    namedtuple(NamedTuple{names,T}, T(itr)...)
 end
 
 function show(io::IO, t::NamedTuple)

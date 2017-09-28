@@ -138,3 +138,10 @@ function nt_from_abstractly_typed_array()
     (getfield(a[1],1), getfield(a[1],2))
 end
 @test nt_from_abstractly_typed_array() === (3,5)
+
+let T = NamedTuple{(:a, :b), Tuple{Int64, Union{Float64, Void}}}, nt = Base.namedtuple(T, 1, nothing)
+    @test nt == (a=1, b=nothing)
+    @test typeof(nt) == T
+    @test convert(T, (a=1, b=nothing)) == nt
+    @test typeof(convert(T, (a=1, b=nothing))) === T
+end
