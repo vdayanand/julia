@@ -3077,7 +3077,7 @@ foo11904(x::Int) = x
     end
 end
 
-@test !isnull(foo11904(Nullable11904(1, true)))
+@test foo11904(Nullable11904(1, true)).hasvalue
 
 # issue 11874
 struct Foo11874

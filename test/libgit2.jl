@@ -689,7 +689,7 @@ mktempdir() do dir
                     @test LibGit2.name(brref) == "refs/heads/master"
                     @test LibGit2.shortname(brref) == master_branch
                     @test LibGit2.ishead(brref)
-                    @test isnull(LibGit2.upstream(brref))
+                    @test LibGit2.upstream(brref) === nothing
 
                     # showing the GitReference to this branch
                     show_strs = split(sprint(show, brref), "\n")
@@ -702,24 +702,24 @@ mktempdir() do dir
 
                     # create a branch *without* setting its tip as HEAD
                     LibGit2.branch!(repo, test_branch, string(commit_oid1), set_head=false)
-                    # null because we are looking for a REMOTE branch
-                    @test isnull(LibGit2.lookup_branch(repo, test_branch, true))
-                    # not null because we are now looking for a LOCAL branch
+                    # nothing because we are looking for a REMOTE branch
+                    @test LibGit2.lookup_branch(repo, test_branch, true) === nothing
+                    # not nothing because we are now looking for a LOCAL branch
                     tbref = Base.get(LibGit2.lookup_branch(repo, test_branch, false))
                     try
                         @test LibGit2.shortname(tbref) == test_branch
-                        @test isnull(LibGit2.upstream(tbref))
+                        @test LibGit2.upstream(tbref) === nothing
                     finally
                         close(tbref)
                     end
-                    @test isnull(LibGit2.lookup_branch(repo, test_branch2, true))
+                    @test LibGit2.lookup_branch(repo, test_branch2, true) === nothing
                     # test deleting the branch
                     LibGit2.branch!(repo, test_branch2; set_head=false)
                     tbref = Base.get(LibGit2.lookup_branch(repo, test_branch2, false))
                     try
                         @test LibGit2.shortname(tbref) == test_branch2
                         LibGit2.delete_branch(tbref)
-                        @test isnull(LibGit2.lookup_branch(repo, test_branch2, true))
+                        @test LibGit2.lookup_branch(repo, test_branch2, true) === nothing
                     finally
                         close(tbref)
                     end
@@ -1322,7 +1322,7 @@ mktempdir() do dir
             # check index for file
             LibGit2.with(LibGit2.GitIndex(repo)) do idx
                 i = find(test_file, idx)
-                @test !isnull(i)
+                @test i !== nothing
                 idx_entry = idx[get(i)]
                 @test idx_entry !== nothing
                 idx_entry_str = sprint(show, idx_entry)
@@ -1330,7 +1330,7 @@ mktempdir() do dir
                 @test LibGit2.stage(idx_entry) == 0
 
                 i = find("zzz", idx)
-                @test isnull(i)
+                @test i === nothing
                 idx_str = sprint(show, idx)
                 @test idx_str == "GitIndex:\nRepository: $(LibGit2.repository(idx))\nNumber of elements: 1\n"
 
@@ -1344,11 +1344,11 @@ mktempdir() do dir
 
             # check non-existent file status
             st = LibGit2.status(repo, "XYZ")
-            @test isnull(st)
+            @test st === nothing
 
             # check file status
             st = LibGit2.status(repo, test_file)
-            @test !isnull(st)
+            @test st !== nothing
             @test LibGit2.isset(get(st), LibGit2.Consts.STATUS_CURRENT)
 
             # modify file
@@ -1400,7 +1400,7 @@ mktempdir() do dir
             remote_name = "test"
             url = "https://test.com/repo"
 
-            @test isnull(LibGit2.lookup_remote(repo, remote_name))
+            @test LibGit2.lookup_remote(repo, remote_name) === nothing
 
             for r in (repo, path)
                 # Set just the fetch URL
@@ -1411,7 +1411,7 @@ mktempdir() do dir
                 @test LibGit2.push_url(remote) == ""
 
                 LibGit2.remote_delete(repo, remote_name)
-                @test isnull(LibGit2.lookup_remote(repo, remote_name))
+                @test LibGit2.lookup_remote(repo, remote_name) === nothing
 
                 # Set just the push URL
                 LibGit2.set_remote_push_url(r, remote_name, url)
@@ -1421,7 +1421,7 @@ mktempdir() do dir
                 @test LibGit2.push_url(remote) == url
 
                 LibGit2.remote_delete(repo, remote_name)
-                @test isnull(LibGit2.lookup_remote(repo, remote_name))
+                @test LibGit2.lookup_remote(repo, remote_name) === nothing
 
                 # Set the fetch and push URL
                 LibGit2.set_remote_url(r, remote_name, url)
@@ -1431,7 +1431,7 @@ mktempdir() do dir
                 @test LibGit2.push_url(remote) == url
 
                 LibGit2.remote_delete(repo, remote_name)
-                @test isnull(LibGit2.lookup_remote(repo, remote_name))
+                @test LibGit2.lookup_remote(repo, remote_name) === nothing
             end
             # Invalid remote name
             @test_throws LibGit2.GitError LibGit2.set_remote_url(repo, "", url)
@@ -1701,7 +1701,7 @@ mktempdir() do dir
             invalid_key = joinpath(KEY_DIR, "invalid")
 
             function gen_ex(cred; username="git")
-                url = !isnull(username) && !isempty(username) ? "$username@" : ""
+                url = username !== nothing && !isempty(username) ? "$username@" : ""
                 url *= "github.com:test/package.jl"
                 quote
                     include($LIBGIT2_HELPER_PATH)
@@ -1711,7 +1711,7 @@ mktempdir() do dir
 
             ssh_ex = gen_ex(valid_cred)
             ssh_p_ex = gen_ex(valid_p_cred)
-            ssh_u_ex = gen_ex(valid_cred, username=null)
+            ssh_u_ex = gen_ex(valid_cred, username=nothing)
 
             # Note: We cannot use the default ~/.ssh/id_rsa for tests since we cannot be
             # sure a users will actually have these files. Instead we will use the ENV
@@ -2014,7 +2014,7 @@ mktempdir() do dir
 
             # A null username_ptr passed into `git_cred_ssh_key_from_agent` can cause a
             # segfault.
-            ex = gen_ex(username=null)
+            ex = gen_ex(username=nothing)
             err, auth_attempts = challenge_prompt(ex, [])
             @test err == exhausted_error
             @test auth_attempts == 2
@@ -2322,7 +2322,7 @@ mktempdir() do dir
             ex = quote
                 include($LIBGIT2_HELPER_PATH)
                 valid_cred = LibGit2.UserPasswordCredentials($valid_username, $valid_password)
-                user = null
+                user = nothing
                 payload = CredentialPayload()
                 first_result = credential_loop(valid_cred, $(urls[1]), user, payload)
                 LibGit2.reset!(payload)

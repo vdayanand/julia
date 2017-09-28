@@ -21,7 +21,7 @@ mutable struct Channel{T} <: AbstractChannel
     cond_take::Condition                 # waiting for data to become available
     cond_put::Condition                  # waiting for a writeable slot
     state::Symbol
-    excp::Union{Some{<:Exception}, Null} # Exception to be thrown when state != :open
+    excp::Union{Some{<:Exception}, Void} # Exception to be thrown when state != :open
 
     data::Vector{T}
     sz_max::Int                          # maximum size of channel
@@ -42,7 +42,7 @@ mutable struct Channel{T} <: AbstractChannel
         if sz < 0
             throw(ArgumentError("Channel size must be either 0, a positive integer or Inf"))
         end
-        ch = new(Condition(), Condition(), :open, null, Vector{T}(0), sz, 0)
+        ch = new(Condition(), Condition(), :open, nothing, Vector{T}(0), sz, 0)
         if sz == 0
             ch.takers = Vector{Task}(0)
             ch.putters = Vector{Task}(0)
@@ -129,7 +129,7 @@ isbuffered(c::Channel) = c.sz_max==0 ? false : true
 
 function check_channel_state(c::Channel)
     if !isopen(c)
-        !isnull(c.excp) && throw(get(c.excp))
+        c.excp !== nothing && throw(get(c.excp))
         throw(closed_exception())
     end
 end

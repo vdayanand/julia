@@ -20,7 +20,7 @@ the argument out in the method definition.
 Returns a tuple of 2 elements `(res, idx)`, where:
 
 * `res` is either a [`Some`](@ref) object holding the result of the parsing,
-   or `null` if parsing failed.
+   or `nothing` if parsing failed.
 * `idx` is an `Int` - if parsing failed, the index at which it failed; if
    parsing succeeded, `idx` is the index _after_ the index at which parsing ended.
 """
@@ -100,9 +100,9 @@ end
 for (tok, fn) in zip("uUeE", [monthabbr_to_value, monthname_to_value, dayabbr_to_value, dayname_to_value])
     @eval @inline function tryparsenext(d::DatePart{$tok}, str, i, len, locale)
         word, i = tryparsenext_word(str, i, len, locale, max_width(d))
-        val = isnull(word) ? 0 : $fn(get(word), locale)
+        val = word === nothing ? 0 : $fn(get(word), locale)
         if val == 0
-            return null, i
+            return nothing, i
         else
             return Some(val), i
         end
@@ -114,7 +114,7 @@ struct Decimal3 end
 
 @inline function tryparsenext(d::DatePart{'s'}, str, i, len)
     ms, ii = tryparsenext_base10(str, i, len, min_width(d), max_width(d))
-    if !isnull(ms)
+    if ms !== nothing
         val0 = val = get(ms)
         len = ii - i
         if len > 3
@@ -188,9 +188,9 @@ Delim(d::String) = Delim{String, length(d)}(d)
 
 @inline function tryparsenext(d::Delim{Char, N}, str, i::Int, len) where N
     for j=1:N
-        i > len && return (null, i)
+        i > len && return (nothing, i)
         c, i = next(str, i)
-        c != d.d && return (null, i)
+        c != d.d && return (nothing, i)
     end
     return Some(true), i
 end
@@ -200,12 +200,12 @@ end
     i2 = start(d.d)
     for j = 1:N
         if i1 > len
-            return null, i1
+            return nothing, i1
         end
         c1, i1 = next(str, i1)
         c2, i2 = next(d.d, i2)
         if c1 != c2
-            return null, i1
+            return nothing, i1
         end
     end
     return Some(true), i1

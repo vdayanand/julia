@@ -11,11 +11,11 @@ Each `lock` must be matched with an `unlock`.
 This lock is NOT threadsafe. See `Threads.Mutex` for a threadsafe lock.
 """
 mutable struct ReentrantLock
-    locked_by::Union{Some{Task}, Null}
+    locked_by::Union{Some{Task}, Void}
     cond_wait::Condition
     reentrancy_cnt::Int
 
-    ReentrantLock() = new(null, Condition(), 0)
+    ReentrantLock() = new(nothing, Condition(), 0)
 end
 
 """
@@ -89,7 +89,7 @@ function unlock(rl::ReentrantLock)
     end
     rl.reentrancy_cnt -= 1
     if rl.reentrancy_cnt == 0
-        rl.locked_by = null
+        rl.locked_by = nothing
         notify(rl.cond_wait)
     end
     return

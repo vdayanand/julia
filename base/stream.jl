@@ -106,7 +106,7 @@ mutable struct PipeEndpoint <: LibuvStream
     readnotify::Condition
     connectnotify::Condition
     closenotify::Condition
-    sendbuf::Union{Some{IOBuffer}, Null}
+    sendbuf::Union{Some{IOBuffer}, Void}
     lock::ReentrantLock
     throttle::Int
 
@@ -118,7 +118,7 @@ mutable struct PipeEndpoint <: LibuvStream
                 Condition(),
                 Condition(),
                 Condition(),
-                null,
+                nothing,
                 ReentrantLock(),
                 DEFAULT_READ_BUFFER_SZ)
         associate_julia_struct(handle, p)
@@ -156,7 +156,7 @@ mutable struct TTY <: LibuvStream
     buffer::IOBuffer
     readnotify::Condition
     closenotify::Condition
-    sendbuf::Union{Some{IOBuffer}, Null}
+    sendbuf::Union{Some{IOBuffer}, Void}
     lock::ReentrantLock
     throttle::Int
     @static if Sys.iswindows(); ispty::Bool; end
@@ -168,7 +168,7 @@ mutable struct TTY <: LibuvStream
             PipeBuffer(),
             Condition(),
             Condition(),
-            null,
+            nothing,
             ReentrantLock(),
             DEFAULT_READ_BUFFER_SZ)
         associate_julia_struct(handle, tty)
@@ -829,7 +829,7 @@ end
 # - large isbits arrays are unbuffered and written directly
 
 function unsafe_write(s::LibuvStream, p::Ptr{UInt8}, n::UInt)
-    if isnull(s.sendbuf)
+    if s.sendbuf === nothing
         return uv_write(s, p, UInt(n))
     end
 
@@ -849,7 +849,7 @@ function unsafe_write(s::LibuvStream, p::Ptr{UInt8}, n::UInt)
 end
 
 function flush(s::LibuvStream)
-    if isnull(s.sendbuf)
+    if s.sendbuf === nothing
         return
     end
     buf = get(s.sendbuf)
@@ -865,7 +865,7 @@ buffer_writes(s::LibuvStream, bufsize) = (s.sendbuf=Some(PipeBuffer(bufsize)); s
 ## low-level calls to libuv ##
 
 function write(s::LibuvStream, b::UInt8)
-    if !isnull(s.sendbuf)
+    if s.sendbuf !== nothing
         buf = get(s.sendbuf)
         if nb_available(buf) + 1 < buf.maxsize
             return write(buf, b)

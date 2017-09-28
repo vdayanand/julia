@@ -430,7 +430,7 @@ for (ms, str) in zip([0, 1, 20, 300, 450, 678], ["0", "001", "02", "3", "45", "6
 end
 
 # Issue #21504
-@test isnull(tryparse(Dates.Date, "0-1000"))
+@test tryparse(Dates.Date, "0-1000") === nothing
 
 # Issue #22100
 @testset "parse milliseconds" begin

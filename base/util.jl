@@ -350,7 +350,7 @@ const log_warn_to = Dict{Tuple{Union{Module,Void},Union{Symbol,Void}},IO}()
 const log_error_to = Dict{Tuple{Union{Module,Void},Union{Symbol,Void}},IO}()
 
 function _redirect(io::IO, log_to::Dict, sf::StackTraces.StackFrame)
-    isnull(sf.linfo) && return io
+    sf.linfo === nothing && return io
     mod = get(sf.linfo).def
     isa(mod, Method) && (mod = mod.module)
     fun = sf.func
@@ -374,7 +374,7 @@ function _redirect(io::IO, log_to::Dict, fun::Symbol)
         stack::Vector{StackFrame} = StackTraces.lookup(trace)
         filter!(frame -> !frame.from_c, stack)
         for frame in stack
-            isnull(frame.linfo) && continue
+            frame.linfo === nothing && continue
             sf = frame
             break_next_frame && (@goto skip)
             mod = get(frame.linfo).def
@@ -600,7 +600,7 @@ getpass(prompt::AbstractString) = unsafe_string(ccall(:getpass, Cstring, (Cstrin
 end
 
 """
-    prompt(message; default="", password=false) -> Union{Some{String}, Null}
+    prompt(message; default="", password=false) -> Union{Some{String}, Void}
 
 Displays the `message` then waits for user input. Input is terminated when a newline (\\n)
 is encountered or EOF (^D) character is entered on a blank line. If a `default` is provided
@@ -619,7 +619,7 @@ function prompt(message::AbstractString; default::AbstractString="", password::B
     else
         print(msg)
         uinput = readline(chomp=false)
-        isempty(uinput) && return null  # Encountered an EOF
+        isempty(uinput) && return nothing  # Encountered an EOF
         uinput = chomp(uinput)
     end
     Some(isempty(uinput) ? default : uinput)
@@ -675,9 +675,9 @@ if Sys.iswindows()
             outbuf_data, outbuf_size, pfSave, dwflags)
 
         #      2.3: If that failed for any reason other than the user canceling, error out.
-        #           If the user canceled, just return a null
+        #           If the user canceled, just return nothing
         if code == ERROR_CANCELLED
-            return null
+            return nothing
         elseif code != ERROR_SUCCESS
             error(Base.Libc.FormatMessage(code))
         end

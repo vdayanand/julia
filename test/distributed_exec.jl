@@ -79,10 +79,10 @@ end
 function testf(id)
     f=Future(id)
     @test isready(f) == false
-    @test isnull(f.v) == true
+    @test f.v === nothing
     put!(f, :OK)
     @test isready(f) == true
-    @test isnull(f.v) == false
+    @test f.v !== nothing
 
     @test_throws ErrorException put!(f, :OK) # Cannot put! to a already set future
     @test_throws MethodError take!(f) # take! is unsupported on a Future
@@ -100,9 +100,9 @@ function test_futures_dgc(id)
 
     # remote value should be deleted after a fetch
     @test remotecall_fetch(k->(yield();haskey(Base.Distributed.PGRP.refs, k)), id, fid) == true
-    @test isnull(f.v) == true
+    @test f.v === nothing
     @test fetch(f) == id
-    @test isnull(f.v) == false
+    @test f.v !== nothing
     yield(); # flush gc msgs
     @test remotecall_fetch(k->(yield();haskey(Base.Distributed.PGRP.refs, k)), id, fid) == false
 
@@ -111,7 +111,7 @@ function test_futures_dgc(id)
     f = remotecall(myid, id)
     fid = Base.remoteref_id(f)
     @test remotecall_fetch(k->(yield();haskey(Base.Distributed.PGRP.refs, k)), id, fid) == true
-    @test isnull(f.v) == true
+    @test f.v === nothing
     finalize(f)
     yield(); # flush gc msgs
     @test remotecall_fetch(k->(yield();haskey(Base.Distributed.PGRP.refs, k)), id, fid) == false
@@ -256,8 +256,8 @@ function test_regular_io_ser(ref::Base.Distributed.AbstractRemoteRef)
         v = getfield(ref2, fld)
         if isa(v, Number)
             @test v === zero(typeof(v))
-        elseif isa(v, Union{Some, Null})
-            @test v === null
+        elseif isa(v, Union{Some, Void})
+            @test v === nothing
         else
             error(string("Add test for field ", fld))
         end
@@ -715,7 +715,7 @@ let ex
     @test length(bt) > 1
     frame, repeated = bt[1]::Tuple{StackFrame, Int}
     @test frame.func == :foo
-    @test isnull(frame.linfo)
+    @test frame.linfo === nothing
     @test repeated == 1
 end
 

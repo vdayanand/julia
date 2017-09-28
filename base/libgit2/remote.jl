@@ -61,10 +61,10 @@ function GitRemoteAnon(repo::GitRepo, url::AbstractString)
 end
 
 """
-    lookup_remote(repo::GitRepo, remote_name::AbstractString) -> Union{Some{GitRemote}, Null}
+    lookup_remote(repo::GitRepo, remote_name::AbstractString) -> Union{Some{GitRemote}, Void}
 
 Determine if the `remote_name` specified exists within the `repo`. Returns an
-either a [`Some`](@ref) object, or [`null`](@ref) if the requested remote
+either a [`Some`](@ref) object, or [`nothing`](@ref) if the requested remote
 does not exist. If the remote does exist, the `Some` wrapper
 contains a [`GitRemote`](@ref) to the remote name.
 
@@ -72,7 +72,7 @@ contains a [`GitRemote`](@ref) to the remote name.
 ```julia
 repo = LibGit2.GitRepo(path)
 remote_name = "test"
-isnull(LibGit2.lookup_remote(repo, remote_name)) # will return true
+LibGit2.lookup_remote(repo, remote_name) # will return nothing
 ```
 """
 function lookup_remote(repo::GitRepo, remote_name::AbstractString)
@@ -83,7 +83,7 @@ function lookup_remote(repo::GitRepo, remote_name::AbstractString)
     if err == Int(Error.GIT_OK)
         return Some(GitRemote(repo, rmt_ptr_ptr[]))
     elseif err == Int(Error.ENOTFOUND)
-        return null
+        return nothing
     else
         throw(Error.GitError(err))
     end

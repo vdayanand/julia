@@ -843,8 +843,8 @@ abstract type GitObject <: AbstractGitObject end
 
 for (typ, owntyp, sup, cname) in [
     (:GitRepo,           nothing,                       :AbstractGitObject, :git_repository),
-    (:GitConfig,         :(Union{Some{GitRepo}, Null}), :AbstractGitObject, :git_config),
-    (:GitIndex,          :(Union{Some{GitRepo}, Null}), :AbstractGitObject, :git_index),
+    (:GitConfig,         :(Union{Some{GitRepo}, Void}), :AbstractGitObject, :git_config),
+    (:GitIndex,          :(Union{Some{GitRepo}, Void}), :AbstractGitObject, :git_index),
     (:GitRemote,         :GitRepo,                      :AbstractGitObject, :git_remote),
     (:GitRevWalker,      :GitRepo,                      :AbstractGitObject, :git_revwalk),
     (:GitReference,      :GitRepo,                      :AbstractGitObject, :git_reference),
@@ -896,7 +896,7 @@ for (typ, owntyp, sup, cname) in [
         end
         if isa(owntyp, Expr) && owntyp.args[1] == :Union && owntyp.args[2].args[1] == :Some
             @eval begin
-                $typ(ptr::Ptr{Void}, fin::Bool=true) = $typ(null, ptr, fin)
+                $typ(ptr::Ptr{Void}, fin::Bool=true) = $typ(nothing, ptr, fin)
                 $typ(owner::$(owntyp.args[2].args[2]), ptr::Ptr{Void}, fin::Bool=true) =
                     $typ(Some(owner), ptr, fin)
             end
@@ -1184,13 +1184,13 @@ A `CredentialPayload` instance is expected to be `reset!` whenever it will be us
 different URL.
 """
 mutable struct CredentialPayload <: Payload
-    explicit::Union{Some{<:AbstractCredentials}, Null}
-    cache::Union{Some{CachedCredentials}, Null}
+    explicit::Union{Some{<:AbstractCredentials}, Void}
+    cache::Union{Some{CachedCredentials}, Void}
     allow_ssh_agent::Bool  # Allow the use of the SSH agent to get credentials
     allow_prompt::Bool     # Allow prompting the user for credentials
 
     # Ephemeral state fields
-    credential::Union{Some{<:AbstractCredentials}, Null}
+    credential::Union{Some{<:AbstractCredentials}, Void}
     first_pass::Bool
     use_ssh_agent::Bool
     use_env::Bool
@@ -1202,8 +1202,8 @@ mutable struct CredentialPayload <: Payload
     host::String
 
     function CredentialPayload(
-            credential::Union{Some{<:AbstractCredentials}, Null}=null,
-            cache::Union{Some{CachedCredentials}, Null}=null;
+            credential::Union{Some{<:AbstractCredentials}, Void}=nothing,
+            cache::Union{Some{CachedCredentials}, Void}=nothing;
             allow_ssh_agent::Bool=true,
             allow_prompt::Bool=true)
         payload = new(credential, cache, allow_ssh_agent, allow_prompt)
@@ -1212,11 +1212,11 @@ mutable struct CredentialPayload <: Payload
 end
 
 function CredentialPayload(credential::AbstractCredentials; kwargs...)
-    CredentialPayload(Some(credential), null; kwargs...)
+    CredentialPayload(Some(credential), nothing; kwargs...)
 end
 
 function CredentialPayload(cache::CachedCredentials; kwargs...)
-    CredentialPayload(null, Some(cache); kwargs...)
+    CredentialPayload(nothing, Some(cache); kwargs...)
 end
 
 """
@@ -1226,7 +1226,7 @@ Reset the `payload` state back to the initial values so that it can be used agai
 the credential callback.
 """
 function reset!(p::CredentialPayload)
-    p.credential = null
+    p.credential = nothing
     p.first_pass = true
     p.use_ssh_agent = p.allow_ssh_agent
     p.use_env = true
@@ -1246,11 +1246,11 @@ Store the `payload` credential for re-use in a future authentication. Should onl
 when authentication was successful.
 """
 function approve(p::CredentialPayload)
-    isnull(p.credential) && return  # No credentials were used
-    cred = unsafe_get(p.credential)
+    p.credential === nothing && return  # No credentials were used
+    cred = Base.get(p.credential)
 
-    if !isnull(p.cache)
-        approve(unsafe_get(p.cache), cred, p.url)
+    if p.cache !== nothing
+        approve(Base.get(p.cache), cred, p.url)
     end
 end
 
@@ -1261,10 +1261,10 @@ Discard the `payload` credential from begin re-used in future authentication. Sh
 called when authentication was unsuccessful.
 """
 function reject(p::CredentialPayload)
-    isnull(p.credential) && return  # No credentials were used
-    cred = unsafe_get(p.credential)
+    p.credential === nothing && return  # No credentials were used
+    cred = Base.get(p.credential)
 
-    if !isnull(p.cache)
-        reject(unsafe_get(p.cache), cred, p.url)
+    if p.cache !== nothing
+        reject(Base.get(p.cache), cred, p.url)
     end
 end

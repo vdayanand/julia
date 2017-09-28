@@ -391,7 +391,7 @@ function _uv_hook_close(proc::Process)
     notify(proc.closenotify)
 end
 
-function spawn(redirect::CmdRedirect, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Null}=null)
+function spawn(redirect::CmdRedirect, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Void}=nothing)
     spawn(redirect.cmd,
           (redirect.stream_no == STDIN_NO  ? redirect.handle : stdios[1],
            redirect.stream_no == STDOUT_NO ? redirect.handle : stdios[2],
@@ -399,11 +399,11 @@ function spawn(redirect::CmdRedirect, stdios::StdIOSet; chain::Union{Some{Proces
            chain=chain)
 end
 
-function spawn(cmds::OrCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Null}=null)
+function spawn(cmds::OrCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Void}=nothing)
     out_pipe = Libc.malloc(_sizeof_uv_named_pipe)
     in_pipe = Libc.malloc(_sizeof_uv_named_pipe)
     link_pipe(in_pipe, false, out_pipe, false)
-    if isnull(chain)
+    if chain === nothing
         chain = Some(ProcessChain(stdios))
     end
     try
@@ -418,11 +418,11 @@ function spawn(cmds::OrCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, 
     get(chain)
 end
 
-function spawn(cmds::ErrOrCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Null}=null)
+function spawn(cmds::ErrOrCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Void}=nothing)
     out_pipe = Libc.malloc(_sizeof_uv_named_pipe)
     in_pipe = Libc.malloc(_sizeof_uv_named_pipe)
     link_pipe(in_pipe, false, out_pipe, false)
-    if isnull(chain)
+    if chain === nothing
         chain = Some(ProcessChain(stdios))
     end
     try
@@ -505,7 +505,7 @@ function setup_stdio(anon::Function, stdio::StdIOSet)
     close_err && close_stdio(err)
 end
 
-function spawn(cmd::Cmd, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Null}=null)
+function spawn(cmd::Cmd, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Void}=nothing)
     if isempty(cmd.exec)
         throw(ArgumentError("cannot spawn empty command"))
     end
@@ -515,14 +515,14 @@ function spawn(cmd::Cmd, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Null
         pp.handle = _jl_spawn(cmd.exec[1], cmd.exec, loop, pp,
                               in, out, err)
     end
-    if !isnull(chain)
+    if chain !== nothing
         push!(get(chain).processes, pp)
     end
     pp
 end
 
-function spawn(cmds::AndCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Null}=null)
-    if isnull(chain)
+function spawn(cmds::AndCmds, stdios::StdIOSet; chain::Union{Some{ProcessChain}, Void}=nothing)
+    if chain === nothing
         chain = Some(ProcessChain(stdios))
     end
     setup_stdio(stdios) do in, out, err
@@ -555,7 +555,7 @@ spawn_opts_inherit(in::Redirectable=RawFD(0), out::Redirectable=RawFD(1), err::R
 
 Run a command object asynchronously, returning the resulting `Process` object.
 """
-spawn(cmds::AbstractCmd, args...; chain::Union{Some{ProcessChain}, Null}=null) =
+spawn(cmds::AbstractCmd, args...; chain::Union{Some{ProcessChain}, Void}=nothing) =
     spawn(cmds, spawn_opts_swallow(args...)...; chain=chain)
 
 function eachline(cmd::AbstractCmd; chomp::Bool=true)

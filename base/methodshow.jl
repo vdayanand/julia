@@ -94,7 +94,7 @@ function show_method_params(io::IO, tv)
     end
 end
 
-function show(io::IO, m::Method; kwtype::Union{Some{DataType}, Null}=null)
+function show(io::IO, m::Method; kwtype::Union{Some{DataType}, Void}=nothing)
     tv, decls, file, line = arg_decl_parts(m)
     sig = unwrap_unionall(m.sig)
     ft0 = sig.parameters[1]
@@ -121,7 +121,7 @@ function show(io::IO, m::Method; kwtype::Union{Some{DataType}, Null}=null)
     print(io, "(")
     join(io, [isempty(d[2]) ? d[1] : d[1]*"::"*d[2] for d in decls[2:end]],
                  ", ", ", ")
-    if !isnull(kwtype)
+    if kwtype !== nothing
         kwargs = kwarg_decl(m, get(kwtype))
         if !isempty(kwargs)
             print(io, "; ")
@@ -149,7 +149,7 @@ function show_method_table(io::IO, ms::MethodList, max::Int=-1, header::Bool=tru
         what = startswith(ns, '@') ? "macro" : "generic function"
         print(io, "# $n $m for ", what, " \"", ns, "\":")
     end
-    kwtype = isdefined(mt, :kwsorter) ? Some(typeof(mt.kwsorter)) : null
+    kwtype = isdefined(mt, :kwsorter) ? Some(typeof(mt.kwsorter)) : nothing
     n = rest = 0
     local last
 
@@ -225,7 +225,7 @@ function url(m::Method)
     end
 end
 
-function show(io::IO, ::MIME"text/html", m::Method; kwtype::Union{Some{DataType}, Null}=null)
+function show(io::IO, ::MIME"text/html", m::Method; kwtype::Union{Some{DataType}, Void}=nothing)
     tv, decls, file, line = arg_decl_parts(m)
     sig = unwrap_unionall(m.sig)
     ft0 = sig.parameters[1]
@@ -253,7 +253,7 @@ function show(io::IO, ::MIME"text/html", m::Method; kwtype::Union{Some{DataType}
     print(io, "(")
     join(io, [isempty(d[2]) ? d[1] : d[1]*"::<b>"*d[2]*"</b>"
                       for d in decls[2:end]], ", ", ", ")
-    if !isnull(kwtype)
+    if kwtype !== nothing
         kwargs = kwarg_decl(m, get(kwtype))
         if !isempty(kwargs)
             print(io, "; <i>")
@@ -281,7 +281,7 @@ function show(io::IO, mime::MIME"text/html", ms::MethodList)
     ns = string(name)
     what = startswith(ns, '@') ? "macro" : "generic function"
     print(io, "$n $meths for ", what, " <b>$ns</b>:<ul>")
-    kwtype = isdefined(mt, :kwsorter) ? Some(typeof(mt.kwsorter)) : null
+    kwtype = isdefined(mt, :kwsorter) ? Some(typeof(mt.kwsorter)) : nothing
     for meth in ms
         print(io, "<li> ")
         show(io, mime, meth; kwtype=kwtype)

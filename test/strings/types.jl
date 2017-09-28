@@ -209,15 +209,15 @@ let
     @test cstring == ptr
 
     # convenient NULL string creation from Ptr{Void}
-    nullstr = Cstring(C_NULL)
+    nothingstr = Cstring(C_NULL)
 
     # Comparisons against NULL strings
-    @test ptr != nullstr
-    @test nullstr != ptr
+    @test ptr != nothingstr
+    @test nothingstr != ptr
 
     # Short-hand comparison against C_NULL
-    @test nullstr == C_NULL
-    @test C_NULL == nullstr
+    @test nothingstr == C_NULL
+    @test C_NULL == nothingstr
     @test cstring != C_NULL
     @test C_NULL != cstring
 end

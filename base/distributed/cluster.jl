@@ -4,47 +4,47 @@ abstract type ClusterManager end
 
 mutable struct WorkerConfig
     # Common fields relevant to all cluster managers
-    io::Union{Some{<:IO}, Null}
-    host::Union{Some{<:AbstractString}, Null}
-    port::Union{Some{<:Integer}, Null}
+    io::Union{Some{<:IO}, Void}
+    host::Union{Some{<:AbstractString}, Void}
+    port::Union{Some{<:Integer}, Void}
 
     # Used when launching additional workers at a host
-    count::Union{Some{Union{Int, Symbol}}, Null}
-    exename::Union{Some{<:Union{AbstractString, Cmd}}, Null}
-    exeflags::Union{Some{Cmd}, Null}
+    count::Union{Some{Union{Int, Symbol}}, Void}
+    exename::Union{Some{<:Union{AbstractString, Cmd}}, Void}
+    exeflags::Union{Some{Cmd}, Void}
 
     # External cluster managers can use this to store information at a per-worker level
     # Can be a dict if multiple fields need to be stored.
-    userdata::Union{Some{<:Any}, Null}
+    userdata::Union{Some{<:Any}, Void}
 
     # SSHManager / SSH tunnel connections to workers
-    tunnel::Union{Some{Bool}, Null}
-    bind_addr::Union{Some{<:AbstractString}, Null}
-    sshflags::Union{Some{Cmd}, Null}
-    max_parallel::Union{Some{Integer}, Null}
+    tunnel::Union{Some{Bool}, Void}
+    bind_addr::Union{Some{<:AbstractString}, Void}
+    sshflags::Union{Some{Cmd}, Void}
+    max_parallel::Union{Some{Integer}, Void}
 
     # Used by Local/SSH managers
-    connect_at::Union{Some{<:Any}, Null}
+    connect_at::Union{Some{<:Any}, Void}
 
-    process::Union{Some{<:Process}, Null}
-    ospid::Union{Some{<:Integer}, Null}
+    process::Union{Some{<:Process}, Void}
+    ospid::Union{Some{<:Integer}, Void}
 
     # Private dictionary used to store temporary information by Local/SSH managers.
-    environ::Union{Some{<:Dict}, Null}
+    environ::Union{Some{<:Dict}, Void}
 
     # Connections to be setup depending on the network topology requested
-    ident::Union{Some{<:Any}, Null}      # Worker as identified by the Cluster Manager.
+    ident::Union{Some{<:Any}, Void}      # Worker as identified by the Cluster Manager.
     # List of other worker idents this worker must connect with. Used with topology T_CUSTOM.
-    connect_idents::Union{Some{<:Array}, Null}
+    connect_idents::Union{Some{<:Array}, Void}
 
     # Run multithreaded blas on worker
-    enable_threaded_blas::Union{Some{Bool}, Null}
+    enable_threaded_blas::Union{Some{Bool}, Void}
 
     function WorkerConfig()
         wc = new()
         for n in 1:length(WorkerConfig.types)
             T = eltype(fieldtype(WorkerConfig, n))
-            setfield!(wc, n, null)
+            setfield!(wc, n, nothing)
         end
         wc
     end
@@ -59,7 +59,7 @@ mutable struct Worker
     state::WorkerState
     c_state::Condition                       # wait for state changes
     ct_time::Float64                         # creation time
-    conn_func::Union{Some{<:Function}, Null} # Used to setup connections lazily
+    conn_func::Union{Some{<:Function}, Void} # Used to setup connections lazily
 
     r_stream::IO
     w_stream::IO
@@ -67,10 +67,10 @@ mutable struct Worker
                                      # serializer as part of the Worker object
     manager::ClusterManager
     config::WorkerConfig
-    version::Union{Some{VersionNumber}, Null}   # Julia version of the remote process
+    version::Union{Some{VersionNumber}, Void}   # Julia version of the remote process
 
     function Worker(id::Int, r_stream::IO, w_stream::IO, manager::ClusterManager;
-                             version::Union{Some{VersionNumber}, Null}=null,
+                             version::Union{Some{VersionNumber}, Void}=nothing,
                              config::WorkerConfig=WorkerConfig())
         w = Worker(id)
         w.r_stream = r_stream
@@ -84,7 +84,7 @@ mutable struct Worker
         w
     end
 
-    Worker(id::Int) = Worker(id, null)
+    Worker(id::Int) = Worker(id, nothing)
     function Worker(id::Int, conn_func)
         @assert id > 0
         if haskey(map_pid_wrkr, id)
@@ -128,13 +128,13 @@ end
 
 exec_conn_func(id::Int) = exec_conn_func(worker_from_id(id))
 function exec_conn_func(w::Worker)
-    if isnull(w.conn_func)
+    if w.conn_func === nothing
         return wait_for_conn(w) # Some other task may be trying to connect at the same time.
     end
 
     try
         f = get(w.conn_func)
-        w.conn_func = null
+        w.conn_func = nothing
         f()
     catch e
         w.conn_func = Some(() -> throw(e))
@@ -193,11 +193,11 @@ line option) and schedules tasks to process incoming TCP connections and request
 
 It does not return.
 """
-start_worker(out::IO=STDOUT) = start_worker(out, null)
+start_worker(out::IO=STDOUT) = start_worker(out, nothing)
 start_worker(cookie::AbstractString) = start_worker(STDOUT, Some(cookie))
 start_worker(out::IO, cookie::AbstractString) = start_worker(out, Some(cookie))
-function start_worker(out::IO, cookie_in::Union{Some{<:AbstractString}, Null})
-    if isnull(cookie_in)
+function start_worker(out::IO, cookie_in::Union{Some{<:AbstractString}, Void})
+    if cookie_in === nothing
         cookie = readline(STDIN)
     else
         cookie = get(cookie_in)
@@ -382,7 +382,7 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
         params[:lazy] = false
     end
 
-    if isnull(PGRP.lazy) || nprocs() == 1
+    if PGRP.lazy === nothing || nprocs() == 1
         PGRP.lazy = Some(params[:lazy])
     elseif isclusterlazy() != params[:lazy]
         throw(ArgumentError(string("Active workers with lazy=", isclusterlazy(),
@@ -669,9 +669,9 @@ mutable struct ProcessGroup
     workers::Array{Any,1}
     refs::Dict                  # global references
     topology::Symbol
-    lazy::Union{Some{Bool}, Null}
+    lazy::Union{Some{Bool}, Void}
 
-    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all, null)
+    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all, nothing)
 end
 const PGRP = ProcessGroup([])
 
@@ -690,7 +690,7 @@ isclusterlazy() = get(PGRP.lazy, false)
 get_bind_addr(pid::Integer) = get_bind_addr(worker_from_id(pid))
 get_bind_addr(w::LocalProcess) = LPROC.bind_addr
 function get_bind_addr(w::Worker)
-    if isnull(w.config.bind_addr)
+    if w.config.bind_addr === nothing
         if w.id != myid()
             w.config.bind_addr = remotecall_fetch(get_bind_addr, w.id, w.id)
         end

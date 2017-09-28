@@ -385,13 +385,13 @@ ensure that messages are delivered and received completely and in order.
 workers.
 """
 function connect(manager::ClusterManager, pid::Int, config::WorkerConfig)
-    if !isnull(config.connect_at)
+    if config.connect_at !== nothing
         # this is a worker-to-worker setup call.
         return connect_w2w(pid, config)
     end
 
     # master connecting to workers
-    if !isnull(config.io)
+    if config.io !== nothing
         (bind_addr, port) = read_worker_host_port(get(config.io))
         pubhost = get(config.host, bind_addr)
         config.host = Some(pubhost)
@@ -440,7 +440,7 @@ function connect(manager::ClusterManager, pid::Int, config::WorkerConfig)
     # write out a subset of the connect_at required for further worker-worker connection setups
     config.connect_at = Some((bind_addr, port))
 
-    if !isnull(config.io)
+    if config.io !== nothing
         let pid = pid
             redirect_worker_output(pid, get(config.io))
         end

@@ -240,11 +240,11 @@ function tryparse_internal(::Type{BigInt}, s::AbstractString, startpos::Int, end
     sgn, base, i = Base.parseint_preamble(true,Int(base_),bstr,start(bstr),endof(bstr))
     if !(2 <= base <= 62)
         raise && throw(ArgumentError("invalid base: base must be 2 ≤ base ≤ 62, got $base"))
-        return null
+        return nothing
     end
     if i == 0
         raise && throw(ArgumentError("premature end of integer: $(repr(bstr))"))
-        return null
+        return nothing
     end
     z = BigInt()
     if Base.containsnul(bstr)
@@ -254,7 +254,7 @@ function tryparse_internal(::Type{BigInt}, s::AbstractString, startpos::Int, end
     end
     if err != 0
         raise && throw(ArgumentError("invalid BigInt: $(repr(bstr))"))
-        return null
+        return nothing
     end
     Some(flipsign!(z, sgn))
 end

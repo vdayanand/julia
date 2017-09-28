@@ -45,6 +45,6 @@ function status(repo::GitRepo, path::String)
     ret =  ccall((:git_status_file, :libgit2), Cint,
                   (Ref{Cuint}, Ptr{Void}, Cstring),
                   status_ptr, repo.ptr, path)
-    (ret == Cint(Error.ENOTFOUND) || ret == Cint(Error.EAMBIGUOUS)) && return null
+    (ret == Cint(Error.ENOTFOUND) || ret == Cint(Error.EAMBIGUOUS)) && return nothing
     return Some(status_ptr[])
 end

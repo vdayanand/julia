@@ -258,8 +258,8 @@ Equivalent to `git fetch [<remoteurl>|<repo>] [<refspecs>]`.
 function fetch(repo::GitRepo; remote::AbstractString="origin",
                remoteurl::AbstractString="",
                refspecs::Vector{<:AbstractString}=AbstractString[],
-               payload::Union{CredentialPayload,Union{Some{<:AbstractCredentials},Null}}=CredentialPayload())
-    p = reset!(deprecate_nullable_creds(:fetch, "repo", payload))
+               payload::Union{CredentialPayload,Union{Some{<:AbstractCredentials},Void}}=CredentialPayload())
+    p = reset!(deprecate_nothingable_creds(:fetch, "repo", payload))
     rmt = if isempty(remoteurl)
         get(GitRemote, repo, remote)
     else
@@ -300,8 +300,8 @@ function push(repo::GitRepo; remote::AbstractString="origin",
               remoteurl::AbstractString="",
               refspecs::Vector{<:AbstractString}=AbstractString[],
               force::Bool=false,
-              payload::Union{CredentialPayload,Union{Some{<:AbstractCredentials},Null}}=CredentialPayload())
-    p = reset!(deprecate_nullable_creds(:push, "repo", payload))
+              payload::Union{CredentialPayload,Union{Some{<:AbstractCredentials},Void}}=CredentialPayload())
+    p = reset!(deprecate_nothingable_creds(:push, "repo", payload))
     rmt = if isempty(remoteurl)
         get(GitRemote, repo, remote)
     else
@@ -368,12 +368,12 @@ function branch!(repo::GitRepo, branch_name::AbstractString,
                  force::Bool=false,           # force branch creation
                  set_head::Bool=true)         # set as head reference on exit
     # try to lookup branch first
-    branch_ref = force ? null : lookup_branch(repo, branch_name)
-    if isnull(branch_ref)
-        branch_rmt_ref = isempty(track) ? null : lookup_branch(repo, "$track/$branch_name", true)
+    branch_ref = force ? nothing : lookup_branch(repo, branch_name)
+    if branch_ref === nothing
+        branch_rmt_ref = isempty(track) ? nothing : lookup_branch(repo, "$track/$branch_name", true)
         # if commit is empty get head commit oid
         commit_id = if isempty(commit)
-            if isnull(branch_rmt_ref)
+            if branch_rmt_ref === nothing
                 with(head(repo)) do head_ref
                     with(peel(GitCommit, head_ref)) do hrc
                         GitHash(hrc)
@@ -391,12 +391,12 @@ function branch!(repo::GitRepo, branch_name::AbstractString,
         end
         iszero(commit_id) && return
         cmt =  GitCommit(repo, commit_id)
-        new_branch_ref = null
+        new_branch_ref = nothing
         try
             new_branch_ref = Some(create_branch(repo, branch_name, cmt, force=force))
         finally
             close(cmt)
-            isnull(new_branch_ref) && throw(GitError(Error.Object, Error.ERROR, "cannot create branch `$branch_name` with `$commit_id`"))
+            new_branch_ref === nothing && throw(GitError(Error.Object, Error.ERROR, "cannot create branch `$branch_name` with `$commit_id`"))
             branch_ref = new_branch_ref
         end
     end
@@ -516,10 +516,10 @@ function clone(repo_url::AbstractString, repo_path::AbstractString;
                branch::AbstractString="",
                isbare::Bool = false,
                remote_cb::Ptr{Void} = C_NULL,
-               payload::Union{CredentialPayload,Union{Some{<:AbstractCredentials},Null}}=CredentialPayload())
+               payload::Union{CredentialPayload,Union{Some{<:AbstractCredentials},Void}}=CredentialPayload())
     # setup clone options
     lbranch = Base.cconvert(Cstring, branch)
-    p = reset!(deprecate_nullable_creds(:clone, "repo_url, repo_path", payload))
+    p = reset!(deprecate_nothingable_creds(:clone, "repo_url, repo_path", payload))
     fetch_opts = FetchOptions(callbacks = RemoteCallbacks(credentials_cb(), p))
     clone_opts = CloneOptions(
                 bare = Cint(isbare),
@@ -715,7 +715,7 @@ function merge!(repo::GitRepo;
             else
                 with(head(repo)) do head_ref
                     tr_brn_ref = upstream(head_ref)
-                    if isnull(tr_brn_ref)
+                    if tr_brn_ref === nothing
                         throw(GitError(Error.Merge, Error.ERROR,
                                        "There is no tracking information for the current branch."))
                     end
@@ -759,7 +759,7 @@ function rebase!(repo::GitRepo, upstream::AbstractString="", newbase::AbstractSt
         head_ann = GitAnnotated(repo, head_ref)
         upst_ann = if isempty(upstream)
             brn_ref = LibGit2.upstream(head_ref)
-            if isnull(brn_ref)
+            if brn_ref === nothing
                 throw(GitError(Error.Rebase, Error.ERROR,
                                "There is no tracking information for the current branch."))
             end
@@ -771,7 +771,7 @@ function rebase!(repo::GitRepo, upstream::AbstractString="", newbase::AbstractSt
         else
             GitAnnotated(repo, upstream)
         end
-        onto_ann = isempty(newbase) ? null : Some(GitAnnotated(repo, newbase))
+        onto_ann = isempty(newbase) ? nothing : Some(GitAnnotated(repo, newbase))
         try
             sig = default_signature(repo)
             try
@@ -788,7 +788,7 @@ function rebase!(repo::GitRepo, upstream::AbstractString="", newbase::AbstractSt
                     close(rbs)
                 end
             finally
-                #!isnull(onto_ann) && close(get(onto_ann))
+                #onto_ann !== nothing && close(get(onto_ann))
                 close(sig)
             end
         finally

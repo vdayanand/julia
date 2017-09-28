@@ -235,13 +235,13 @@ function head!(repo::GitRepo, ref::GitReference)
 end
 
 """
-    lookup_branch(repo::GitRepo, branch_name::AbstractString, remote::Bool=false) -> Union{Some{GitReference}, Null}
+    lookup_branch(repo::GitRepo, branch_name::AbstractString, remote::Bool=false) -> Union{Some{GitReference}, Void}
 
 Determine if the branch specified by `branch_name` exists in the repository `repo`.
 If `remote` is `true`, `repo` is assumed to be a remote git repository. Otherwise, it
 is part of the local filesystem.
 
-`lookup_branch` returns either a [`Some`](@ref) object, or [`null`](@ref) if
+`lookup_branch` returns either a [`Some`](@ref) object, or [`nothing`](@ref) if
 the requested branch does not exist yet. If the branch does exist, the `Some` wrapper
 contains a `GitReference` to the branch.
 """
@@ -255,7 +255,7 @@ function lookup_branch(repo::GitRepo,
                   ref_ptr_ptr, repo.ptr, branch_name, branch_type)
     if err != Int(Error.GIT_OK)
         if err == Int(Error.ENOTFOUND)
-            return null
+            return nothing
         end
         if ref_ptr_ptr[] != C_NULL
             close(GitReference(repo, ref_ptr_ptr[]))
@@ -266,11 +266,11 @@ function lookup_branch(repo::GitRepo,
 end
 
 """
-    upstream(ref::GitReference) -> Union{Some{GitReference}, Null}
+    upstream(ref::GitReference) -> Union{Some{GitReference}, Void}
 
 Determine if the branch containing `ref` has a specified upstream branch.
 
-`upstream` returns either a [`Some`](@ref) object, or [`null`](@ref) if
+`upstream` returns either a [`Some`](@ref) object, or [`nothing`](@ref) if
 the requested branch does not have an upstream counterpart. If
 the upstream branch does exist, the `Some` wrapper
 contains a `GitReference` to the upstream branch.
@@ -282,7 +282,7 @@ function upstream(ref::GitReference)
                   (Ref{Ptr{Void}}, Ptr{Void},), ref_ptr_ptr, ref.ptr)
     if err != Int(Error.GIT_OK)
         if err == Int(Error.ENOTFOUND)
-            return null
+            return nothing
         end
         if ref_ptr_ptr[] != C_NULL
             close(GitReference(ref.owner, ref_ptr_ptr[]))

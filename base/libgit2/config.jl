@@ -199,14 +199,14 @@ function Base.start(ci::GitConfigIter)
     if err == Cint(Error.GIT_OK)
         state = Some(unsafe_load(entry_ptr_ptr[]))
     elseif err == Cint(Error.ITEROVER)
-        state = null
+        state = nothing
     else
         throw(GitError(err))
     end
     return state
 end
 
-Base.done(ci::GitConfigIter, state) = isnull(state)
+Base.done(ci::GitConfigIter, state) = state === nothing
 
 function Base.next(ci::GitConfigIter, state)
     entry = Base.get(state)
@@ -216,7 +216,7 @@ function Base.next(ci::GitConfigIter, state)
     if err == Cint(Error.GIT_OK)
         state = Some(unsafe_load(entry_ptr_ptr[]))
     elseif err == Cint(Error.ITEROVER)
-        state = null
+        state = nothing
     else
         throw(GitError(err))
     end

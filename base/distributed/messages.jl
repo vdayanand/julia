@@ -31,8 +31,8 @@ struct MsgHeader
         new(respond_oid, notify_oid)
 end
 
-# Special oid (0,0) uses to indicate a null ID.
-# Used instead of Union{Some, Null} to decrease wire size of header.
+# Special oid (0,0) uses to indicate a nothing ID.
+# Used instead of Union{Some, Void} to decrease wire size of header.
 null_id(id) =  id == RRID(0, 0)
 
 struct CallMsg{Mode} <: AbstractMsg

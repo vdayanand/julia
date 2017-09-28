@@ -185,7 +185,7 @@ performs a `remote_do` on it.
 """
 remote_do(f, pool::AbstractWorkerPool, args...; kwargs...) = remotecall_pool(remote_do, f, pool, args...; kwargs...)
 
-const _default_worker_pool = Ref{Union{Some{WorkerPool}, Null}}(null)
+const _default_worker_pool = Ref{Union{Some{WorkerPool}, Void}}(nothing)
 
 """
     default_worker_pool()
@@ -195,7 +195,7 @@ const _default_worker_pool = Ref{Union{Some{WorkerPool}, Null}}(null)
 function default_worker_pool()
     # On workers retrieve the default worker pool from the master when accessed
     # for the first time
-    if isnull(_default_worker_pool[])
+    if _default_worker_pool[] === nothing
         if myid() == 1
             _default_worker_pool[] = Some(WorkerPool())
         else

@@ -675,7 +675,7 @@ function _prod_start(iterators)
     d, tailstates, tailnvalues = _prod_start(tail(iterators))
     if done(iter1, state1)
         d = true
-        nvalue1 = null
+        nvalue1 = nothing
     else
         value1, state1 = next(iter1, state1)
         nvalue1 = Some{eltype(iter1)}(value1)
@@ -694,7 +694,7 @@ function _prod_next(iterators, states, nvalues)
     else
         d, tailstates, tailnvalues = _prod_next(tail(iterators), tail(states), tail(nvalues))
         if d # all iterators are done
-            nvalue1 = null
+            nvalue1 = nothing
         else
             value1, state1 = next(iter1, start(iter1)) # iter cannot be done immediately
             nvalue1 = Some{eltype(iter1)}(value1)

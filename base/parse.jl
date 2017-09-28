@@ -83,20 +83,20 @@ function tryparse_internal(::Type{T}, s::AbstractString, startpos::Int, endpos::
     sgn, base, i = parseint_preamble(T<:Signed, Int(base_), s, startpos, endpos)
     if sgn == 0 && base == 0 && i == 0
         raise && throw(ArgumentError("input string is empty or only contains whitespace"))
-        return null
+        return nothing
     end
     if !(2 <= base <= 62)
         raise && throw(ArgumentError("invalid base: base must be 2 ≤ base ≤ 62, got $base"))
-        return null
+        return nothing
     end
     if i == 0
         raise && throw(ArgumentError("premature end of integer: $(repr(SubString(s,startpos,endpos)))"))
-        return null
+        return nothing
     end
     c, i = parseint_next(s,i,endpos)
     if i == 0
         raise && throw(ArgumentError("premature end of integer: $(repr(SubString(s,startpos,endpos)))"))
-        return null
+        return nothing
     end
 
     base = convert(T,base)
@@ -109,7 +109,7 @@ function tryparse_internal(::Type{T}, s::AbstractString, startpos::Int, endpos::
                'a' <= c <= 'z' ? c-'a'+a  : base
         if d >= base
             raise && throw(ArgumentError("invalid base $base digit $(repr(c)) in $(repr(SubString(s,startpos,endpos)))"))
-            return null
+            return nothing
         end
         n *= base
         n += d
@@ -127,7 +127,7 @@ function tryparse_internal(::Type{T}, s::AbstractString, startpos::Int, endpos::
             'a' <= c <= 'z' ? c-'a'+a  : base
         if d >= base
             raise && throw(ArgumentError("invalid base $base digit $(repr(c)) in $(repr(SubString(s,startpos,endpos)))"))
-            return null
+            return nothing
         end
         (T <: Signed) && (d *= sgn)
 
@@ -135,7 +135,7 @@ function tryparse_internal(::Type{T}, s::AbstractString, startpos::Int, endpos::
         n, ov_add = add_with_overflow(n, d)
         if ov_mul | ov_add
             raise && throw(OverflowError("overflow parsing $(repr(SubString(s,startpos,endpos)))"))
-            return null
+            return nothing
         end
         (i > endpos) && return Some(n)
         c, i = next(s,i)
@@ -144,7 +144,7 @@ function tryparse_internal(::Type{T}, s::AbstractString, startpos::Int, endpos::
         c, i = next(s,i)
         if !isspace(c)
             raise && throw(ArgumentError("extra characters after whitespace in $(repr(SubString(s,startpos,endpos)))"))
-            return null
+            return nothing
         end
     end
     return Some(n)
@@ -154,7 +154,7 @@ function tryparse_internal(::Type{Bool}, sbuff::Union{String,SubString},
         startpos::Int, endpos::Int, base::Integer, raise::Bool)
     if isempty(sbuff)
         raise && throw(ArgumentError("input string is empty"))
-        return null
+        return nothing
     end
 
     orig_start = startpos
@@ -185,7 +185,7 @@ function tryparse_internal(::Type{Bool}, sbuff::Union{String,SubString},
             throw(ArgumentError("invalid Bool representation: $(repr(substr))"))
         end
     end
-    return null
+    return nothing
 end
 
 @inline function check_valid_base(base)
@@ -199,7 +199,7 @@ end
     tryparse(type, str, [base])
 
 Like [`parse`](@ref), but returns either a [`Some`](@ref) object wrapping a value
-of the requested type, or [`null`](@ref) if the string does not contain a valid number.
+of the requested type, or [`nothing`](@ref) if the string does not contain a valid number.
 """
 tryparse(::Type{T}, s::AbstractString, base::Integer) where {T<:Integer} =
     tryparse_internal(T, s, start(s), endof(s), check_valid_base(base), false)
@@ -220,33 +220,33 @@ end
 function tryparse(::Type{Float64}, s::String)
     hasvalue, val = ccall(:jl_try_substrtod, Tuple{Bool, Float64},
                           (Ptr{UInt8},Csize_t,Csize_t), s, 0, sizeof(s))
-    hasvalue ? Some(val) : null
+    hasvalue ? Some(val) : nothing
 end
 function tryparse(::Type{Float64}, s::SubString{String})
     hasvalue, val = ccall(:jl_try_substrtod, Tuple{Bool, Float64},
                           (Ptr{UInt8},Csize_t,Csize_t), s.string, s.offset, s.endof)
-    hasvalue ? Some(val) : null
+    hasvalue ? Some(val) : nothing
 end
 function tryparse(::Type{Float32}, s::String)
     hasvalue, val = ccall(:jl_try_substrtof, Tuple{Bool, Float32},
                           (Ptr{UInt8},Csize_t,Csize_t), s, 0, sizeof(s))
-    hasvalue ? Some(val) : null
+    hasvalue ? Some(val) : nothing
 end
 function tryparse(::Type{Float32}, s::SubString{String})
     hasvalue, val = ccall(:jl_try_substrtof, Tuple{Bool, Float32},
                           (Ptr{UInt8},Csize_t,Csize_t), s.string, s.offset, s.endof)
-    hasvalue ? Some(val) : null
+    hasvalue ? Some(val) : nothing
 end
 tryparse(::Type{T}, s::AbstractString) where {T<:Union{Float32,Float64}} = tryparse(T, String(s))
 
 function tryparse(::Type{Float16}, s::AbstractString)
     res = tryparse(Float32, s)
-    isnull(res) ? null : convert(Some{Float16}, res)
+    res === nothing ? nothing : convert(Some{Float16}, res)
 end
 
 function parse(::Type{T}, s::AbstractString) where T<:AbstractFloat
     result = tryparse(T, s)
-    if isnull(result)
+    if result === nothing
         throw(ArgumentError("cannot parse $(repr(s)) as $T"))
     end
     return get(result)

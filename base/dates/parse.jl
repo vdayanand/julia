@@ -24,10 +24,10 @@ genvar(t::DataType) = Symbol(lowercase(string(Base.datatype_name(t))))
 Parses the string according to the directives within the DateFormat. Parsing will start at
 character index `pos` and will stop when all directives are used or we have parsed up to
 the end of the string, `len`. When a directive cannot be parsed the returned value tuple
-will be null if `raise` is false otherwise an exception will be thrown.
+will be `nothing` if `raise` is false otherwise an exception will be thrown.
 
 Returns a 3-element tuple `(values, pos, num_parsed)`:
-* `values::Union{Some{Tuple}, Null}`: Either `null`, or a `Some` object wrapping a tuple
+* `values::Union{Some{Tuple}, Void}`: Either `nothing`, or a `Some` object wrapping a tuple
   which contains a value for each `DatePart` within the `DateFormat` in the order
   in which they occur. If the string ends before we finish parsing all the directives
   the missing values will be filled in with default values.
@@ -64,7 +64,7 @@ Returns a 3-element tuple `(values, pos, num_parsed)`:
                 quote
                     pos > len && @goto done
                     $val, next_pos = tryparsenext(directives[$i], str, pos, len, locale)
-                    isnull($val) && @goto error
+                    $val === nothing && @goto error
                     $name = get($val)
                     pos = next_pos
                     num_parsed += 1
@@ -74,7 +74,7 @@ Returns a 3-element tuple `(values, pos, num_parsed)`:
                 quote
                     pos > len && @goto done
                     delim, next_pos = tryparsenext(directives[$i], str, pos, len, locale)
-                    isnull(delim) && @goto error
+                    delim === nothing && @goto error
                     pos = next_pos
                     directive_index += 1
                 end
@@ -107,7 +107,7 @@ Returns a 3-element tuple `(values, pos, num_parsed)`:
                 throw(ArgumentError("Unable to parse date time. Expected directive $d at char $pos"))
             end
         end
-        return null, pos, 0
+        return nothing, pos, 0
     end
 end
 
@@ -117,11 +117,11 @@ end
 Parses the string according to the directives within the DateFormat. The specified TimeType
 type determines the type of and order of tokens returned. If the given DateFormat or string
 does not provide a required token a default value will be used. When the string cannot be
-parsed the returned value tuple will be null if `raise` is false otherwise an exception will
+parsed the returned value tuple will be `nothing` if `raise` is false otherwise an exception will
 be thrown.
 
 Returns a 2-element tuple `(values, pos)`:
-* `values::Union{Some{Tuple}, Null}`: Either `null`, or a `Some` object wrapping a tuple
+* `values::Union{Some{Tuple}, Void}`: Either `nothing`, or a `Some` object wrapping a tuple
   which contains a value for each token as specified by the passed in type.
 * `pos::Int`: The character index at which parsing stopped.
 """
@@ -152,7 +152,7 @@ Returns a 2-element tuple `(values, pos)`:
 
     quote
         values, pos, num_parsed = tryparsenext_core(str, pos, len, df, raise)
-        isnull(values) && return null, pos
+        values === nothing && return nothing, pos
         $(assign_defaults...)
         $value_tuple = get(values)
         return Some{$R}($(Expr(:tuple, output_names...))), pos
@@ -160,7 +160,7 @@ Returns a 2-element tuple `(values, pos)`:
 end
 
 @inline function tryparsenext_base10(str::AbstractString, i::Int, len::Int, min_width::Int=1, max_width::Int=0)
-    i > len && (return null, i)
+    i > len && (return nothing, i)
     min_pos = min_width <= 0 ? i : i + min_width - 1
     max_pos = max_width <= 0 ? len : min(i + max_width - 1, len)
     d::Int64 = 0
@@ -174,7 +174,7 @@ end
         i = ii
     end
     if i <= min_pos
-        return null, i
+        return nothing, i
     else
         return Some(d), i
     end
@@ -193,7 +193,7 @@ end
         i = ii
     end
     if word_end == 0
-        return null, i
+        return nothing, i
     else
         return Some(SubString(str, word_start, word_end)), i
     end
@@ -206,7 +206,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     th = tm = ts = tms = Int64(0)
 
     val, i = tryparsenext_base10(s, i, end_pos, 1)
-    dy = isnull(val) ? (@goto error) : get(val)
+    dy = val === nothing ? (@goto error) : get(val)
     i > end_pos && @goto error
 
     c, i = next(s, i)
@@ -214,7 +214,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     i > end_pos && @goto done
 
     val, i = tryparsenext_base10(s, i, end_pos, 1, 2)
-    dm = isnull(val) ? (@goto error) : get(val)
+    dm = val === nothing ? (@goto error) : get(val)
     i > end_pos && @goto done
 
     c, i = next(s, i)
@@ -222,7 +222,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     i > end_pos && @goto done
 
     val, i = tryparsenext_base10(s, i, end_pos, 1, 2)
-    dd = isnull(val) ? (@goto error) : get(val)
+    dd = val === nothing ? (@goto error) : get(val)
     i > end_pos && @goto done
 
     c, i = next(s, i)
@@ -230,7 +230,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     i > end_pos && @goto done
 
     val, i = tryparsenext_base10(s, i, end_pos, 1, 2)
-    th = isnull(val) ? (@goto error) : get(val)
+    th = val === nothing ? (@goto error) : get(val)
     i > end_pos && @goto done
 
     c, i = next(s, i)
@@ -238,7 +238,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     i > end_pos && @goto done
 
     val, i = tryparsenext_base10(s, i, end_pos, 1, 2)
-    tm = isnull(val) ? (@goto error) : get(val)
+    tm = val === nothing ? (@goto error) : get(val)
     i > end_pos && @goto done
 
     c, i = next(s, i)
@@ -246,7 +246,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     i > end_pos && @goto done
 
     val, i = tryparsenext_base10(s, i, end_pos, 1, 2)
-    ts = isnull(val) ? (@goto error) : get(val)
+    ts = val === nothing ? (@goto error) : get(val)
     i > end_pos && @goto done
 
     c, i = next(s, i)
@@ -254,7 +254,7 @@ function Base.parse(::Type{DateTime}, s::AbstractString, df::typeof(ISODateTimeF
     i > end_pos && @goto done
 
     val, j = tryparsenext_base10(s, i, end_pos, 1, 3)
-    tms = isnull(val) ? (@goto error) : get(val)
+    tms = val === nothing ? (@goto error) : get(val)
     tms *= 10 ^ (3 - (j - i))
 
     j > end_pos || @goto error
@@ -275,13 +275,13 @@ end
 function Base.tryparse(::Type{T}, str::AbstractString, df::DateFormat=default_format(T)) where T<:TimeType
     pos, len = start(str), endof(str)
     values, pos = tryparsenext_internal(T, str, pos, len, df, false)
-    if isnull(values)
-        null
-    elseif isnull(validargs(T, get(values)...))
+    if values === nothing
+        nothing
+    elseif validargs(T, get(values)...) === nothing
         # TODO: validargs gets called twice, since it's called again in the T constructor
         Some(T(get(values)...))
     else
-        null
+        nothing
     end
 end
 
