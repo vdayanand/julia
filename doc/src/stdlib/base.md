@@ -106,7 +106,7 @@ Base.fieldoffset
 Core.fieldtype
 Base.isimmutable
 Base.isbits
-Base.isleaftype
+Base.isconcrete
 Base.typejoin
 Base.typeintersect
 Base.instances
@@ -152,6 +152,8 @@ Base.@noinline
 Base.@nospecialize
 Base.gensym
 Base.@gensym
+Base.@goto
+Base.@label
 Base.@polly
 Base.parse(::AbstractString, ::Int)
 Base.parse(::AbstractString)
@@ -191,9 +193,6 @@ Base.getipaddr
 Base.Libc.getpid
 Base.Libc.time()
 Base.time_ns
-Base.tic
-Base.toc
-Base.toq
 Base.@time
 Base.@timev
 Base.@timed

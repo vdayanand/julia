@@ -28,7 +28,7 @@ let n = 12 #Size of matrix problem to test
             b = rand(1:100, n)
             c = rand(1:100, n-1)
         else
-            d = convert(Vector{elty}, 1. + randn(n))
+            d = convert(Vector{elty}, 1 .+ randn(n))
             dl = convert(Vector{elty}, randn(n - 1))
             du = convert(Vector{elty}, randn(n - 1))
             v = convert(Vector{elty}, randn(n))
@@ -80,8 +80,10 @@ let n = 12 #Size of matrix problem to test
             @test Array(convert(SymTridiagonal{Complex64},Tridiagonal(SymTridiagonal(d, dl)))) == convert(Matrix{Complex64}, SymTridiagonal(d, dl))
         end
         @testset "tril/triu" begin
-            @test_throws ArgumentError tril!(SymTridiagonal(d,dl),n+1)
-            @test_throws ArgumentError tril!(Tridiagonal(dl,d,du),n+1)
+            @test_throws ArgumentError tril!(SymTridiagonal(d, dl), -n - 2)
+            @test_throws ArgumentError tril!(SymTridiagonal(d, dl), n)
+            @test_throws ArgumentError tril!(Tridiagonal(dl, d, du), -n - 2)
+            @test_throws ArgumentError tril!(Tridiagonal(dl, d, du), n)
             @test tril(SymTridiagonal(d,dl))    == Tridiagonal(dl,d,zeros(dl))
             @test tril(SymTridiagonal(d,dl),1)  == Tridiagonal(dl,d,dl)
             @test tril(SymTridiagonal(d,dl),-1) == Tridiagonal(dl,zeros(d),zeros(dl))
@@ -91,8 +93,10 @@ let n = 12 #Size of matrix problem to test
             @test tril(Tridiagonal(dl,d,du),-1) == Tridiagonal(dl,zeros(d),zeros(du))
             @test tril(Tridiagonal(dl,d,du),-2) == Tridiagonal(zeros(dl),zeros(d),zeros(du))
 
-            @test_throws ArgumentError triu!(SymTridiagonal(d,dl),n+1)
-            @test_throws ArgumentError triu!(Tridiagonal(dl,d,du),n+1)
+            @test_throws ArgumentError triu!(SymTridiagonal(d, dl), -n)
+            @test_throws ArgumentError triu!(SymTridiagonal(d, dl), n + 2)
+            @test_throws ArgumentError triu!(Tridiagonal(dl, d, du), -n)
+            @test_throws ArgumentError triu!(Tridiagonal(dl, d, du), n + 2)
             @test triu(SymTridiagonal(d,dl))    == Tridiagonal(zeros(dl),d,dl)
             @test triu(SymTridiagonal(d,dl),-1) == Tridiagonal(dl,d,dl)
             @test triu(SymTridiagonal(d,dl),1)  == Tridiagonal(zeros(dl),zeros(d),dl)
@@ -153,6 +157,7 @@ let n = 12 #Size of matrix problem to test
                 @test diag(A, 0) === d
                 @test diag(A) === d
                 @test diag(A, n - 1) == zeros(elty, 1)
+                @test_throws ArgumentError diag(A, -n - 1)
                 @test_throws ArgumentError diag(A, n + 1)
             end
             @testset "Idempotent tests" begin
@@ -252,7 +257,7 @@ let n = 12 #Size of matrix problem to test
                                 D, Vecs = eig(fA)
                                 @test DT ≈ D
                                 @test abs.(VT'Vecs) ≈ eye(elty, n)
-                                @test eigvecs(A) ≈ eigvecs(fA)
+                                Test.test_approx_eq_modphase(eigvecs(A), eigvecs(fA))
                                 #call to LAPACK.stein here
                                 Test.test_approx_eq_modphase(eigvecs(A,eigvals(A)),eigvecs(A))
                             elseif elty != Int

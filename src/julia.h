@@ -1438,6 +1438,8 @@ JL_DLLEXPORT uint8_t jl_ast_flag_pure(jl_array_t *data);
 JL_DLLEXPORT void jl_fill_argnames(jl_array_t *data, jl_array_t *names);
 
 JL_DLLEXPORT int jl_is_operator(char *sym);
+JL_DLLEXPORT int jl_is_unary_operator(char *sym);
+JL_DLLEXPORT int jl_is_unary_and_binary_operator(char *sym);
 JL_DLLEXPORT int jl_operator_precedence(char *sym);
 
 STATIC_INLINE int jl_vinfo_sa(uint8_t vi)
@@ -1689,9 +1691,7 @@ typedef struct {
     int8_t banner;
     const char *julia_home;
     const char *julia_bin;
-    const char *eval;
-    const char *print;
-    const char *load;
+    const char **cmds;
     const char *image_file;
     const char *cpu_target;
     int32_t nprocs;
@@ -1714,8 +1714,8 @@ typedef struct {
     int8_t worker;
     const char *cookie;
     int8_t handle_signals;
-    int8_t use_precompiled;
-    int8_t use_compilecache;
+    int8_t use_sysimage_native_code;
+    int8_t use_compiled_modules;
     const char *bindto;
     const char *outputbc;
     const char *outputunoptbc;
@@ -1781,11 +1781,11 @@ JL_DLLEXPORT int jl_generating_output(void);
 #define JL_OPTIONS_HANDLE_SIGNALS_ON 1
 #define JL_OPTIONS_HANDLE_SIGNALS_OFF 0
 
-#define JL_OPTIONS_USE_PRECOMPILED_YES 1
-#define JL_OPTIONS_USE_PRECOMPILED_NO 0
+#define JL_OPTIONS_USE_SYSIMAGE_NATIVE_CODE_YES 1
+#define JL_OPTIONS_USE_SYSIMAGE_NATIVE_CODE_NO 0
 
-#define JL_OPTIONS_USE_COMPILECACHE_YES 1
-#define JL_OPTIONS_USE_COMPILECACHE_NO 0
+#define JL_OPTIONS_USE_COMPILED_MODULES_YES 1
+#define JL_OPTIONS_USE_COMPILED_MODULES_NO 0
 
 // Version information
 #include "julia_version.h"

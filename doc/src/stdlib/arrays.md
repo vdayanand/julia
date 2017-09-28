@@ -106,7 +106,6 @@ Base.flipdim
 Base.circshift
 Base.circshift!
 Base.circcopy!
-Base.contains(::Function, ::Any, ::Any)
 Base.find(::Any)
 Base.find(::Function, ::Any)
 Base.findn
@@ -141,7 +140,6 @@ Base.cumsum!
 Base.cumsum_kbn
 Base.crc32c
 Base.LinAlg.diff
-Base.LinAlg.gradient
 Base.repeat(::AbstractArray)
 Base.rot180
 Base.rotl90

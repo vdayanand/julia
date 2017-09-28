@@ -229,6 +229,7 @@ widen(::Type{BigInt})  = BigInt
 signed(x::BigInt) = x
 
 convert(::Type{BigInt}, x::BigInt) = x
+convert(::Type{Signed}, x::BigInt) = x
 
 hastypemax(::Type{BigInt}) = false
 
@@ -323,7 +324,7 @@ end
 
 rem(x::Integer, ::Type{BigInt}) = convert(BigInt, x)
 
-function convert(::Type{T}, x::BigInt) where T<:Unsigned
+function convert(::Type{T}, x::BigInt) where T<:Base.BitUnsigned
     if sizeof(T) < sizeof(Limb)
         convert(T, convert(Limb,x))
     else
@@ -332,7 +333,7 @@ function convert(::Type{T}, x::BigInt) where T<:Unsigned
     end
 end
 
-function convert(::Type{T}, x::BigInt) where T<:Signed
+function convert(::Type{T}, x::BigInt) where T<:Base.BitSigned
     n = abs(x.size)
     if sizeof(T) < sizeof(Limb)
         SLimb = typeof(Signed(one(Limb)))
@@ -612,7 +613,7 @@ function base(b::Integer, n::BigInt, pad::Integer=1)
     nd  = max(nd1, pad)
     sv  = Base.StringVector(nd + isneg(n))
     MPZ.get_str!(pointer(sv) + nd - nd1, b, n)
-    @inbounds for i = (1:nd-nd1) + isneg(n)
+    @inbounds for i = (1:nd-nd1) .+ isneg(n)
         sv[i] = '0' % UInt8
     end
     isneg(n) && (sv[1] = '-' % UInt8)

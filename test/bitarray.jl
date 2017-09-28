@@ -1055,7 +1055,10 @@ timesofar("binary comparison")
         b2 = circshift!(i1, b1, -j)
         i2 = circshift!(b1, -j)
         @test b2 == i2
+
+        @check_bit_operation slicedim(b1, 1, m) Bool
     end
+    @check_bit_operation slicedim(b1, 1, :) BitVector
 end
 
 timesofar("datamove")
@@ -1357,8 +1360,14 @@ timesofar("cat")
     @check_bit_operation dot(b1, b2) Int
 
     b1 = bitrand(n1, n2)
-    for k = (-n1):n2
+    @test_throws ArgumentError tril(b1, -n1 - 2)
+    @test_throws ArgumentError tril(b1, n2)
+    @test_throws ArgumentError triu(b1, -n1)
+    @test_throws ArgumentError triu(b1, n2 + 2)
+    for k in (-n1 - 1):(n2 - 1)
         @check_bit_operation tril(b1, k) BitMatrix
+    end
+    for k in (-n1 + 1):(n2 + 1)
         @check_bit_operation triu(b1, k) BitMatrix
     end
 
@@ -1391,10 +1400,6 @@ timesofar("cat")
     b1 = bitrand(n1, n1)
     @check_bit_operation svd(b1)
     @check_bit_operation qr(b1)
-
-    b1 = bitrand(v1)
-    @check_bit_operation gradient(b1)
-    @check_bit_operation gradient(b1, 1.0)
 
     b1 = bitrand(v1)
     @check_bit_operation diagm(b1) BitMatrix

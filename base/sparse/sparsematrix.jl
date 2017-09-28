@@ -1229,14 +1229,16 @@ function fkeep!(A::SparseMatrixCSC, f, trim::Bool = true)
 end
 
 function tril!(A::SparseMatrixCSC, k::Integer = 0, trim::Bool = true)
-    if k > A.n-1 || k < 1-A.m
-        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($(A.m),$(A.n))"))
+    if !(-A.m - 1 <= k <= A.n - 1)
+        throw(ArgumentError(string("the requested diagonal, $k, must be at least ",
+            "$(-A.m - 1) and at most $(A.n - 1) in an $(A.m)-by-$(A.n) matrix")))
     end
     fkeep!(A, (i, j, x) -> i + k >= j, trim)
 end
 function triu!(A::SparseMatrixCSC, k::Integer = 0, trim::Bool = true)
-    if k > A.n-1 || k < 1-A.m
-        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($(A.m),$(A.n))"))
+    if !(-A.m + 1 <= k <= A.n + 1)
+        throw(ArgumentError(string("the requested diagonal, $k, must be at least ",
+            "$(-A.m + 1) and at most $(A.n + 1) in an $(A.m)-by-$(A.n) matrix")))
     end
     fkeep!(A, (i, j, x) -> j >= i + k, trim)
 end
@@ -1921,7 +1923,7 @@ indmin(A::SparseMatrixCSC) = findmin(A)[2]
 indmax(A::SparseMatrixCSC) = findmax(A)[2]
 
 ## getindex
-function rangesearch(haystack::Range, needle)
+function rangesearch(haystack::AbstractRange, needle)
     (i,rem) = divrem(needle - first(haystack), step(haystack))
     (rem==0 && 1<=i+1<=length(haystack)) ? i+1 : 0
 end
@@ -1978,7 +1980,7 @@ end
 getindex_traverse_col(::AbstractUnitRange, lo::Int, hi::Int) = lo:hi
 getindex_traverse_col(I::StepRange, lo::Int, hi::Int) = step(I) > 0 ? (lo:1:hi) : (hi:-1:lo)
 
-function getindex(A::SparseMatrixCSC{Tv,Ti}, I::Range, J::AbstractVector) where {Tv,Ti<:Integer}
+function getindex(A::SparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv,Ti<:Integer}
     # Ranges for indexing rows
     (m, n) = size(A)
     # whole columns:
@@ -2338,10 +2340,10 @@ function getindex(A::SparseMatrixCSC{Tv}, I::AbstractArray) where Tv
 end
 
 # logical getindex
-getindex(A::SparseMatrixCSC{<:Any,<:Integer}, I::Range{Bool}, J::AbstractVector{Bool}) = error("Cannot index with Range{Bool}")
-getindex(A::SparseMatrixCSC{<:Any,<:Integer}, I::Range{Bool}, J::AbstractVector{<:Integer}) = error("Cannot index with Range{Bool}")
+getindex(A::SparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{Bool}) = error("Cannot index with AbstractRange{Bool}")
+getindex(A::SparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{<:Integer}) = error("Cannot index with AbstractRange{Bool}")
 
-getindex(A::SparseMatrixCSC, I::Range{<:Integer}, J::AbstractVector{Bool}) = A[I,find(J)]
+getindex(A::SparseMatrixCSC, I::AbstractRange{<:Integer}, J::AbstractVector{Bool}) = A[I,find(J)]
 getindex(A::SparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = A[I,find(J)]
 getindex(A::SparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = A[find(I),J]
 getindex(A::SparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = A[find(I),find(J)]
@@ -2573,7 +2575,7 @@ function setindex!(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti}, I::Abst
     elseif !issortedI
         pI = sortperm(I); @inbounds I = I[pI]
         B = B[pI,:]
-    else !issortedJ
+    elseif !issortedJ
         pJ = sortperm(J); @inbounds J = J[pJ]
         B = B[:, pJ]
     end
@@ -3115,13 +3117,13 @@ function hcat(X::SparseMatrixCSC...)
     nX_sofar = 0
     @inbounds for i = 1 : num
         XI = X[i]
-        colptr[(1 : nX[i] + 1) + nX_sofar] = XI.colptr .+ nnz_sofar
+        colptr[(1 : nX[i] + 1) .+ nX_sofar] = XI.colptr .+ nnz_sofar
         if nnzX[i] == length(XI.rowval)
-            rowval[(1 : nnzX[i]) + nnz_sofar] = XI.rowval
-            nzval[(1 : nnzX[i]) + nnz_sofar] = XI.nzval
+            rowval[(1 : nnzX[i]) .+ nnz_sofar] = XI.rowval
+            nzval[(1 : nnzX[i]) .+ nnz_sofar] = XI.nzval
         else
-            rowval[(1 : nnzX[i]) + nnz_sofar] = XI.rowval[1:nnzX[i]]
-            nzval[(1 : nnzX[i]) + nnz_sofar] = XI.nzval[1:nnzX[i]]
+            rowval[(1 : nnzX[i]) .+ nnz_sofar] = XI.rowval[1:nnzX[i]]
+            nzval[(1 : nnzX[i]) .+ nnz_sofar] = XI.nzval[1:nnzX[i]]
         end
         nnz_sofar += nnzX[i]
         nX_sofar += nX[i]
@@ -3166,9 +3168,9 @@ function blkdiag(X::SparseMatrixCSC...)
     nX_sofar = 0
     mX_sofar = 0
     for i = 1 : num
-        colptr[(1 : nX[i] + 1) + nX_sofar] = X[i].colptr .+ nnz_sofar
-        rowval[(1 : nnzX[i]) + nnz_sofar] = X[i].rowval .+ mX_sofar
-        nzval[(1 : nnzX[i]) + nnz_sofar] = X[i].nzval
+        colptr[(1 : nX[i] + 1) .+ nX_sofar] = X[i].colptr .+ nnz_sofar
+        rowval[(1 : nnzX[i]) .+ nnz_sofar] = X[i].rowval .+ mX_sofar
+        nzval[(1 : nnzX[i]) .+ nnz_sofar] = X[i].nzval
         nnz_sofar += nnzX[i]
         nX_sofar += nX[i]
         mX_sofar += mX[i]
@@ -3385,7 +3387,8 @@ function diag(A::SparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     m, n = size(A)
     k = Int(d)
     if !(-m <= k <= n)
-        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m, $n)"))
+        throw(ArgumentError(string("requested diagonal, $k, must be at least $(-m) ",
+            "and at most $n in an $m-by-$n matrix")))
     end
     l = k < 0 ? min(m+k,n) : min(n-k,m)
     r, c = k <= 0 ? (-k, 0) : (0, k) # start row/col -1

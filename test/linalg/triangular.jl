@@ -108,20 +108,24 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
             @test tril(A1,0)  == A1
             @test tril(A1,-1) == LowerTriangular(tril(full(A1),-1))
             @test tril(A1,1)  == t1(tril(tril(full(A1),1)))
-            @test_throws ArgumentError tril!(A1,n+1)
+            @test_throws ArgumentError tril!(A1, -n - 2)
+            @test_throws ArgumentError tril!(A1, n)
             @test triu(A1,0)  == t1(diagm(diag(A1)))
             @test triu(A1,-1) == t1(tril(triu(A1.data,-1)))
             @test triu(A1,1)  == LowerTriangular(zeros(A1.data))
-            @test_throws ArgumentError triu!(A1,n+1)
+            @test_throws ArgumentError triu!(A1, -n)
+            @test_throws ArgumentError triu!(A1, n + 2)
         else
             @test triu(A1,0)  == A1
             @test triu(A1,1)  == UpperTriangular(triu(full(A1),1))
             @test triu(A1,-1) == t1(triu(triu(full(A1),-1)))
-            @test_throws ArgumentError triu!(A1,n+1)
+            @test_throws ArgumentError triu!(A1, -n)
+            @test_throws ArgumentError triu!(A1, n + 2)
             @test tril(A1,0)  == t1(diagm(diag(A1)))
             @test tril(A1,1)  == t1(triu(tril(A1.data,1)))
             @test tril(A1,-1) == UpperTriangular(zeros(A1.data))
-            @test_throws ArgumentError tril!(A1,n+1)
+            @test_throws ArgumentError tril!(A1, -n - 2)
+            @test_throws ArgumentError tril!(A1, n)
         end
 
         # factorize
@@ -480,8 +484,7 @@ end
 @test !isdiag(LowerTriangular(rand(4, 4)))
 
 # Test throwing in fallbacks for non BlasFloat/BlasComplex in A_rdiv_Bx!
-let
-    n = 5
+let n = 5
     A = rand(Float16, n, n)
     B = rand(Float16, n-1, n-1)
     @test_throws DimensionMismatch A_rdiv_B!(A, LowerTriangular(B))
@@ -509,7 +512,7 @@ end
 
 # dimensional correctness:
 isdefined(Main, :TestHelpers) || @eval Main include("../TestHelpers.jl")
-using TestHelpers.Furlong
+using Main.TestHelpers.Furlong
 let A = UpperTriangular([Furlong(1) Furlong(4); Furlong(0) Furlong(1)])
     @test sqrt(A) == Furlong{1//2}.(UpperTriangular([1 2; 0 1]))
 end

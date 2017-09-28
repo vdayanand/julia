@@ -186,6 +186,7 @@ function find_tvar10930(arg)
 end
 @test find_tvar10930(Vararg{Int}) === 1
 
+const isleaftype = Base._isleaftype
 
 # issue #12474
 @generated function f12474(::Any)
@@ -565,7 +566,7 @@ tpara18457(::Type{A}) where {A<:AbstractMyType18457} = tpara18457(supertype(A))
 @test tpara18457(MyType18457{true}) === true
 
 @testset "type inference error #19322" begin
-    Y_19322 = reshape(round.(Int, abs.(randn(5*1000)))+1,1000,5)
+    Y_19322 = reshape(round.(Int, abs.(randn(5*1000))) .+ 1, 1000, 5)
 
     function FOO_19322(Y::AbstractMatrix; frac::Float64=0.3, nbins::Int=100, n_sims::Int=100)
         num_iters, num_chains = size(Y)
@@ -777,7 +778,8 @@ end
 
 # issue #21410
 f21410(::V, ::Pair{V,E}) where {V, E} = E
-@test code_typed(f21410, Tuple{Ref, Pair{Ref{T},Ref{T}} where T<:Number})[1].second == Type{Ref{T}} where T<:Number
+@test code_typed(f21410, Tuple{Ref, Pair{Ref{T},Ref{T}} where T<:Number})[1].second ==
+    Type{E} where E <: (Ref{T} where T<:Number)
 
 # issue #21369
 function inf_error_21369(arg)
@@ -1217,3 +1219,25 @@ g23024(TT::Tuple{DataType}) = f23024(TT[1], v23024)
 
 @test !Core.Inference.isconstType(Type{typeof(Union{})}) # could be Core.TypeofBottom or Type{Union{}} at runtime
 @test Base.return_types(supertype, (Type{typeof(Union{})},)) == Any[Any]
+
+# issue #23685
+struct Node23685{T}
+end
+@inline function update23685!(::Node23685{T}) where T
+    convert(Node23685{T}, Node23685{Float64}())
+end
+h23685 = Node23685{Float64}()
+f23685() = update23685!(h23685)
+@test f23685() === h23685
+
+let c(::Type{T}, x) where {T<:Array} = T,
+    f() = c(Vector{Any[Int][1]}, [1])
+    @test f() === Vector{Int}
+end
+
+# issue #23786
+struct T23786{D<:Tuple{Vararg{Vector{T} where T}}, N}
+end
+let t = Tuple{Type{T23786{D, N} where N where D<:Tuple{Vararg{Array{T, 1} where T, N} where N}}}
+    @test Core.Inference.limit_type_depth(t, 4) >: t
+end

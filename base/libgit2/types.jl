@@ -218,10 +218,6 @@ function RemoteCallbacks(credentials_cb::Ptr{Void}, payload::Payload)
     RemoteCallbacks(credentials_cb, Ref(payload))
 end
 
-function RemoteCallbacks(credentials_cb::Ptr{Void}, credentials)
-    RemoteCallbacks(credentials_cb, CredentialPayload(credentials))
-end
-
 """
     LibGit2.ProxyOptions
 
@@ -1066,34 +1062,46 @@ import Base.securezero!
 "Abstract credentials payload"
 abstract type AbstractCredentials end
 
-"Checks if credentials were used"
-checkused!(p::AbstractCredentials) = true
-"Resets credentials for another use"
-reset!(p::AbstractCredentials, cnt::Int=3) = nothing
+"""
+    isfilled(cred::AbstractCredentials) -> Bool
+
+Verifies that a credential is ready for use in authentication.
+"""
+isfilled(::AbstractCredentials)
 
 "Credentials that support only `user` and `password` parameters"
 mutable struct UserPasswordCredentials <: AbstractCredentials
     user::String
     pass::String
-    prompt_if_incorrect::Bool    # Whether to allow interactive prompting if the credentials are incorrect
-    count::Int                   # authentication failure protection count
-    function UserPasswordCredentials(u::AbstractString,p::AbstractString,prompt_if_incorrect::Bool=false)
-        c = new(u,p,prompt_if_incorrect,3)
+    function UserPasswordCredentials(user::AbstractString="", pass::AbstractString="")
+        c = new(user, pass)
         finalizer(c, securezero!)
         return c
     end
-    UserPasswordCredentials(prompt_if_incorrect::Bool=false) = UserPasswordCredentials("","",prompt_if_incorrect)
+
+    # Deprecated constructors
+    function UserPasswordCredentials(u::AbstractString,p::AbstractString,prompt_if_incorrect::Bool)
+        Base.depwarn(string(
+            "`UserPasswordCredentials` no longer supports the `prompt_if_incorrect` parameter. ",
+            "Use the `allow_prompt` keyword in supported by `LibGit2.CredentialPayload` ",
+            "instead."), :UserPasswordCredentials)
+        UserPasswordCredentials(u, p)
+    end
+    UserPasswordCredentials(prompt_if_incorrect::Bool) = UserPasswordCredentials("","",prompt_if_incorrect)
 end
 
 function securezero!(cred::UserPasswordCredentials)
     securezero!(cred.user)
     securezero!(cred.pass)
-    cred.count = 0
     return cred
 end
 
 function Base.:(==)(a::UserPasswordCredentials, b::UserPasswordCredentials)
     a.user == b.user && a.pass == b.pass
+end
+
+function isfilled(cred::UserPasswordCredentials)
+    !isempty(cred.user) && !isempty(cred.pass)
 end
 
 "SSH credentials type"
@@ -1102,16 +1110,23 @@ mutable struct SSHCredentials <: AbstractCredentials
     pass::String
     prvkey::String
     pubkey::String
-    usesshagent::String  # used for ssh-agent authentication
-    prompt_if_incorrect::Bool    # Whether to allow interactive prompting if the credentials are incorrect
-    count::Int
-    function SSHCredentials(u::AbstractString,p::AbstractString,prvkey::AbstractString,pubkey::AbstractString,prompt_if_incorrect::Bool=false)
-        c = new(u,p,prvkey,pubkey,"Y",prompt_if_incorrect,3)
+    function SSHCredentials(user::AbstractString="", pass::AbstractString="",
+                            prvkey::AbstractString="", pubkey::AbstractString="")
+        c = new(user, pass, prvkey, pubkey)
         finalizer(c, securezero!)
         return c
     end
-    SSHCredentials(u::AbstractString,p::AbstractString,prompt_if_incorrect::Bool=false) = SSHCredentials(u,p,"","",prompt_if_incorrect)
-    SSHCredentials(prompt_if_incorrect::Bool=false) = SSHCredentials("","","","",prompt_if_incorrect)
+
+    # Deprecated constructors
+    function SSHCredentials(u::AbstractString,p::AbstractString,prvkey::AbstractString,pubkey::AbstractString,prompt_if_incorrect::Bool)
+        Base.depwarn(string(
+            "`SSHCredentials` no longer supports the `prompt_if_incorrect` parameter. ",
+            "Use the `allow_prompt` keyword in supported by `LibGit2.CredentialPayload` ",
+            "instead."), :SSHCredentials)
+        SSHCredentials(u, p, prvkey, pubkey)
+    end
+    SSHCredentials(u::AbstractString, p::AbstractString, prompt_if_incorrect::Bool) = SSHCredentials(u,p,"","",prompt_if_incorrect)
+    SSHCredentials(prompt_if_incorrect::Bool) = SSHCredentials("","","","",prompt_if_incorrect)
 end
 
 function securezero!(cred::SSHCredentials)
@@ -1119,7 +1134,6 @@ function securezero!(cred::SSHCredentials)
     securezero!(cred.pass)
     securezero!(cred.prvkey)
     securezero!(cred.pubkey)
-    cred.count = 0
     return cred
 end
 
@@ -1127,58 +1141,130 @@ function Base.:(==)(a::SSHCredentials, b::SSHCredentials)
     a.user == b.user && a.pass == b.pass && a.prvkey == b.prvkey && a.pubkey == b.pubkey
 end
 
+function isfilled(cred::SSHCredentials)
+    !isempty(cred.user) && isfile(cred.prvkey) && isfile(cred.pubkey) &&
+    (!isempty(cred.pass) || !is_passphrase_required(cred.prvkey))
+end
+
 "Credentials that support caching"
-mutable struct CachedCredentials <: AbstractCredentials
+struct CachedCredentials <: AbstractCredentials
     cred::Dict{String,AbstractCredentials}
-    count::Int            # authentication failure protection count
-    CachedCredentials() = new(Dict{String,AbstractCredentials}(),3)
+    CachedCredentials() = new(Dict{String,AbstractCredentials}())
 end
 
-"Checks if credentials were used or failed authentication, see `LibGit2.credentials_callback`"
-function checkused!(p::Union{UserPasswordCredentials, SSHCredentials})
-    p.count <= 0 && return true
-    p.count -= 1
-    return false
-end
-reset!(p::Union{UserPasswordCredentials, SSHCredentials}, cnt::Int=3) = (p.count = cnt; p)
-reset!(p::CachedCredentials) = (foreach(reset!, values(p.cred)); p)
-
-"Obtain the cached credentials for the given host+protocol (credid), or return and store the default if not found"
-get_creds!(collection::CachedCredentials, credid, default) = get!(collection.cred, credid, default)
+Base.haskey(cache::CachedCredentials, cred_id) = Base.haskey(cache.cred, cred_id)
+Base.getindex(cache::CachedCredentials, cred_id) = Base.getindex(cache.cred, cred_id)
+Base.get!(cache::CachedCredentials, cred_id, default) = Base.get!(cache.cred, cred_id, default)
 
 function securezero!(p::CachedCredentials)
     foreach(securezero!, values(p.cred))
     return p
 end
 
+function approve(cache::CachedCredentials, cred::AbstractCredentials, url::AbstractString)
+    cred_id = credential_identifier(url)
+    cache.cred[cred_id] = cred
+    nothing
+end
+
+function reject(cache::CachedCredentials, cred::AbstractCredentials, url::AbstractString)
+    cred_id = credential_identifier(url)
+    if haskey(cache.cred, cred_id)
+        securezero!(cache.cred[cred_id])  # Wipe out invalid credentials
+        delete!(cache.cred, cred_id)
+    end
+    nothing
+end
+
 """
     LibGit2.CredentialPayload
 
-Retains state between multiple calls to the credential callback. A single
-`CredentialPayload` instance will be used when authentication fails for a URL but different
-instances will be used when the URL has changed.
+Retains the state between multiple calls to the credential callback for the same URL.
+A `CredentialPayload` instance is expected to be `reset!` whenever it will be used with a
+different URL.
 """
 mutable struct CredentialPayload <: Payload
-    credential::Nullable{AbstractCredentials}
+    explicit::Nullable{AbstractCredentials}
     cache::Nullable{CachedCredentials}
+    allow_ssh_agent::Bool  # Allow the use of the SSH agent to get credentials
+    allow_prompt::Bool     # Allow prompting the user for credentials
+
+    # Ephemeral state fields
+    credential::Nullable{AbstractCredentials}
+    first_pass::Bool
+    use_ssh_agent::Bool
+    use_env::Bool
+    remaining_prompts::Int
+
+    url::String
     scheme::String
     username::String
     host::String
-    path::String
 
-    function CredentialPayload(credential::Nullable{<:AbstractCredentials}, cache::Nullable{CachedCredentials})
-        new(credential, cache, "", "", "", "")
+    function CredentialPayload(
+            credential::Nullable{<:AbstractCredentials}=Nullable{AbstractCredentials}(),
+            cache::Nullable{CachedCredentials}=Nullable{CachedCredentials}();
+            allow_ssh_agent::Bool=true,
+            allow_prompt::Bool=true)
+        payload = new(credential, cache, allow_ssh_agent, allow_prompt)
+        return reset!(payload)
     end
 end
 
-function CredentialPayload(credential::Nullable{<:AbstractCredentials})
-    CredentialPayload(credential, Nullable{CachedCredentials}())
+function CredentialPayload(credential::AbstractCredentials; kwargs...)
+    CredentialPayload(Nullable(credential), Nullable{CachedCredentials}(); kwargs...)
 end
 
-function CredentialPayload(cache::Nullable{CachedCredentials})
-    CredentialPayload(Nullable{AbstractCredentials}(), cache)
+function CredentialPayload(cache::CachedCredentials; kwargs...)
+    CredentialPayload(Nullable{AbstractCredentials}(), Nullable(cache); kwargs...)
 end
 
-function CredentialPayload()
-    CredentialPayload(Nullable{AbstractCredentials}(), Nullable{CachedCredentials}())
+"""
+    reset!(payload) -> CredentialPayload
+
+Reset the `payload` state back to the initial values so that it can be used again within
+the credential callback.
+"""
+function reset!(p::CredentialPayload)
+    p.credential = Nullable{AbstractCredentials}()
+    p.first_pass = true
+    p.use_ssh_agent = p.allow_ssh_agent
+    p.use_env = true
+    p.remaining_prompts = p.allow_prompt ? 3 : 0
+    p.url = ""
+    p.scheme = ""
+    p.username = ""
+    p.host = ""
+
+    return p
+end
+
+"""
+    approve(payload::CredentialPayload) -> Void
+
+Store the `payload` credential for re-use in a future authentication. Should only be called
+when authentication was successful.
+"""
+function approve(p::CredentialPayload)
+    isnull(p.credential) && return  # No credentials were used
+    cred = unsafe_get(p.credential)
+
+    if !isnull(p.cache)
+        approve(unsafe_get(p.cache), cred, p.url)
+    end
+end
+
+"""
+    reject(payload::CredentialPayload) -> Void
+
+Discard the `payload` credential from begin re-used in future authentication. Should only be
+called when authentication was unsuccessful.
+"""
+function reject(p::CredentialPayload)
+    isnull(p.credential) && return  # No credentials were used
+    cred = unsafe_get(p.credential)
+
+    if !isnull(p.cache)
+        reject(unsafe_get(p.cache), cred, p.url)
+    end
 end

@@ -115,7 +115,7 @@ isposdef(x::Number) = imag(x)==0 && real(x) > 0
 stride1(x::Array) = 1
 stride1(x::StridedVector) = stride(x, 1)::Int
 
-function norm(x::StridedVector{T}, rx::Union{UnitRange{TI},Range{TI}}) where {T<:BlasFloat,TI<:Integer}
+function norm(x::StridedVector{T}, rx::Union{UnitRange{TI},AbstractRange{TI}}) where {T<:BlasFloat,TI<:Integer}
     if minimum(rx) < 1 || maximum(rx) > length(x)
         throw(BoundsError(x, rx))
     end
@@ -155,8 +155,9 @@ julia> triu!(M, 1)
 """
 function triu!(M::AbstractMatrix, k::Integer)
     m, n = size(M)
-    if (k > 0 && k > n) || (k < 0 && -k > m)
-        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m,$n)"))
+    if !(-m + 1 <= k <= n + 1)
+        throw(ArgumentError(string("the requested diagonal, $k, must be at least ",
+            "$(-m + 1) and at most $(n + 1) in an $m-by-$n matrix")))
     end
     idx = 1
     for j = 0:n-1
@@ -198,8 +199,9 @@ julia> tril!(M, 2)
 """
 function tril!(M::AbstractMatrix, k::Integer)
     m, n = size(M)
-    if (k > 0 && k > n) || (k < 0 && -k > m)
-        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m,$n)"))
+    if !(-m - 1 <= k <= n - 1)
+        throw(ArgumentError(string("the requested diagonal, $k, must be at least ",
+            "$(-m - 1) and at most $(n - 1) in an $m-by-$n matrix")))
     end
     idx = 1
     for j = 0:n-1
@@ -213,26 +215,10 @@ function tril!(M::AbstractMatrix, k::Integer)
 end
 tril(M::Matrix, k::Integer) = tril!(copy(M), k)
 
-function gradient(F::AbstractVector, h::Vector)
-    n = length(F)
-    T = typeof(oneunit(eltype(F))/oneunit(eltype(h)))
-    g = similar(F, T)
-    if n == 1
-        g[1] = zero(T)
-    elseif n > 1
-        g[1] = (F[2] - F[1]) / (h[2] - h[1])
-        g[n] = (F[n] - F[n-1]) / (h[end] - h[end-1])
-        if n > 2
-            h = h[3:n] - h[1:n-2]
-            g[2:n-1] = (F[3:n] - F[1:n-2]) ./ h
-        end
-    end
-    g
-end
-
 function diagind(m::Integer, n::Integer, k::Integer=0)
     if !(-m <= k <= n)
-        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m,$n)"))
+        throw(ArgumentError(string("requested diagonal, $k, must be at least $(-m) and ",
+            "at most $n in an $m-by-$n matrix")))
     end
     k <= 0 ? range(1-k, m+1, min(m+k, n)) : range(k*m+1, m+1, min(m, n-k))
 end
@@ -240,7 +226,7 @@ end
 """
     diagind(M, k::Integer=0)
 
-A `Range` giving the indices of the `k`th diagonal of the matrix `M`.
+An `AbstractRange` giving the indices of the `k`th diagonal of the matrix `M`.
 
 # Examples
 ```jldoctest
@@ -459,12 +445,17 @@ julia> exp(A)
 ```
 """
 exp(A::StridedMatrix{<:BlasFloat}) = exp!(copy(A))
-exp(A::StridedMatrix{<:Integer}) = exp!(float(A))
+exp(A::StridedMatrix{<:Union{Integer,Complex{<:Integer}}}) = exp!(float.(A))
 
 ## Destructive matrix exponential using algorithm from Higham, 2008,
 ## "Functions of Matrices: Theory and Computation", SIAM
 function exp!(A::StridedMatrix{T}) where T<:BlasFloat
     n = checksquare(A)
+    if T <: Real
+        if issymmetric(A)
+            return full(exp(Symmetric(A)))
+        end
+    end
     if ishermitian(A)
         return full(exp(Hermitian(A)))
     end
@@ -589,11 +580,13 @@ julia> log(A)
 """
 function log(A::StridedMatrix{T}) where T
     # If possible, use diagonalization
-    if issymmetric(A) && T <: Real
-        return log(Symmetric(A))
+    if T <: Real
+        if issymmetric(A)
+            return full(log(Symmetric(A)))
+        end
     end
     if ishermitian(A)
-        return log(Hermitian(A))
+        return full(log(Hermitian(A)))
     end
 
     # Use Schur decomposition

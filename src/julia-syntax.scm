@@ -1076,9 +1076,11 @@
                  (syntax-deprecation #f
                                      (string "parametric method syntax " (deparse (cadr e))
                                              (linenode-string (function-body-lineno body)))
-                                     (deparse `(where (call ,name ,@(if (has-parameters? argl)
-                                                                        (cons (car argl) (cddr argl))
-                                                                        (cdr argl)))
+                                     (deparse `(where (call ,(or name
+                                                                 (cadr (cadr (cadr e))))
+                                                            ,@(if (has-parameters? argl)
+                                                                  (cons (car argl) (cddr argl))
+                                                                  (cdr argl)))
                                                       ,@raw-typevars))))
              (expand-forms
               (method-def-expr name sparams argl body isstaged rett))))
@@ -1725,6 +1727,7 @@
             (= ,state (call (top start) ,coll))
             ;; TODO avoid `local declared twice` error from this
             ;;,@(if outer? `((local ,lhs)) '())
+            ,@(if outer? `((require-existing-local ,lhs)) '())
             ,(expand-forms
               `(,while
                 (call (top !) (call (top done) ,coll ,state))
@@ -2671,10 +2674,14 @@
         ((eq? (car e) 'local) '(null)) ;; remove local decls
         ((eq? (car e) 'local-def) '(null)) ;; remove local decls
         ((eq? (car e) 'implicit-global) '(null)) ;; remove implicit-global decls
+        ((eq? (car e) 'require-existing-local)
+         (if (not (memq (cadr e) env))
+             (error "no outer variable declaration exists for \"for outer\""))
+         '(null))
         ((eq? (car e) 'warn-if-existing)
-	 (if (or (memq (cadr e) outerglobals) (memq (cadr e) implicitglobals))
-	     `(warn-loop-var ,(cadr e))
-	     '(null)))
+         (if (or (memq (cadr e) outerglobals) (memq (cadr e) implicitglobals))
+             `(warn-loop-var ,(cadr e))
+             '(null)))
         ((eq? (car e) 'lambda)
          (let* ((lv (lam:vars e))
                 (env (append lv env))
@@ -2945,7 +2952,7 @@ f(x) = yt(x)
                   (struct_type ,name (call (core svec))
                                (call (core svec) ,@(map quotify fields))
                                ,super
-                               (call (core svec) ,@(map (lambda (v) '(core Any)) fields))
+                               (call (core svec) ,@(map (lambda (v) '(core Box)) fields))
                                false ,(length fields))
                   (return (null)))))))
 
@@ -2982,14 +2989,14 @@ f(x) = yt(x)
   (map vinfo:not-capt vinfos))
 
 (define (convert-lambda lam fname interp capt-sp)
-  `(lambda ,(lam:args lam)
-     (,(clear-capture-bits (car (lam:vinfo lam)))
-      ()
-      ,(caddr (lam:vinfo lam))
-      ,(delete-duplicates (append (lam:sp lam) capt-sp)))
-     ,(add-box-inits-to-body
-       lam
-       (cl-convert (cadddr lam) fname lam (table) #f interp))))
+  (let ((body (add-box-inits-to-body
+                lam (cl-convert (cadddr lam) fname lam (table) #f interp))))
+    `(lambda ,(lam:args lam)
+       (,(clear-capture-bits (car (lam:vinfo lam)))
+        ()
+        ,(caddr (lam:vinfo lam))
+        ,(delete-duplicates (append (lam:sp lam) capt-sp)))
+      ,body)))
 
 (define (convert-for-type-decl rhs t)
   (if (equal? t '(core Any))
@@ -3151,7 +3158,8 @@ f(x) = yt(x)
                                (memq (car e) '(quote top core line inert local local-def unnecessary
                                                meta inbounds boundscheck simdloop decl
                                                implicit-global global globalref outerref
-                                               const = null method call foreigncall ssavalue))))
+                                               const = null method call foreigncall ssavalue
+                                               gc_preserve_begin gc_preserve_end))))
                          (lam:body lam))))
                (unused (map cadr (filter (lambda (x) (memq (car x) '(method =)))
                                          leading))))
@@ -3198,6 +3206,27 @@ f(x) = yt(x)
           (cons (car e) (map-cl-convert (cdr e) fname lam namemap toplevel interp)))
       (cond
        ((symbol? e)
+        (define (new-undef-var name)
+          (let ((g (named-gensy name)))
+            (set-car! (lam:vinfo lam) (append (car (lam:vinfo lam)) `((,g Any 32))))
+            g))
+        (define (get-box-contents box typ)
+          ; lower in an UndefVar check to a similarly named variable (ref #20016)
+          ; so that closure lowering Box introduction doesn't impact the error message
+          ; and the compiler is expected to fold away the extraneous null check
+          (let* ((access (if (symbol? box) box (make-ssavalue)))
+                 (undeftest `(call (core isdefined) ,access (inert contents)))
+                 (undefvar (new-undef-var e))
+                 (undefcheck `(if ,undeftest (null) (block (newvar ,undefvar) ,undefvar)))
+                 (val `(call (core getfield) ,access (inert contents)))
+                 (val (if (equal? typ '(core Any))
+                          val
+                          `(call (core typeassert) ,val
+                                 ,(cl-convert typ fname lam namemap toplevel interp)))))
+            `(block
+               ,@(if (eq? box access) '() `((= ,access ,box)))
+               ,undefcheck
+               ,val)))
         (let ((vi (assq e (car  (lam:vinfo lam))))
               (cv (assq e (cadr (lam:vinfo lam)))))
           (cond ((eq? e fname) e)
@@ -3207,19 +3236,11 @@ f(x) = yt(x)
                                    `($ (call (core QuoteNode) ,e))
                                    `(call (core getfield) ,fname (inert ,e)))))
                    (if (and (vinfo:asgn cv) (vinfo:capt cv))
-                       (let ((val `(call (core getfield) ,access (inert contents))))
-                         (if (equal? (vinfo:type cv) '(core Any))
-                             val
-                             `(call (core typeassert) ,val
-                                    ,(cl-convert (vinfo:type cv) fname lam namemap toplevel interp))))
+                       (get-box-contents access (vinfo:type cv))
                        access)))
                 (vi
                  (if (and (vinfo:asgn vi) (vinfo:capt vi))
-                     (let ((val `(call (core getfield) ,e (inert contents))))
-                       (if (equal? (vinfo:type vi) '(core Any))
-                           val
-                           `(call (core typeassert) ,val
-                                  ,(cl-convert (vinfo:type vi) fname lam namemap toplevel interp))))
+                     (get-box-contents e (vinfo:type vi))
                      e))
                 (else e))))
        ((atom? e) e)
@@ -3302,12 +3323,13 @@ f(x) = yt(x)
                         `(block
                           ,@sp-inits
                           (method ,name ,(cl-convert sig fname lam namemap toplevel interp)
-                                  (lambda ,(cadr lam2)
-                                    (,(clear-capture-bits (car vis))
-                                     ,@(cdr vis))
-                                    ,(add-box-inits-to-body
-                                      lam2
-                                      (cl-convert (cadddr lam2) 'anon lam2 (table) #f interp)))
+                                  ,(let ((body (add-box-inits-to-body
+                                                 lam2
+                                                 (cl-convert (cadddr lam2) 'anon lam2 (table) #f interp))))
+                                     `(lambda ,(cadr lam2)
+                                        (,(clear-capture-bits (car vis))
+                                         ,@(cdr vis))
+                                         ,body))
                                   ,(last e))))
                        (else
                         (let* ((exprs     (lift-toplevel (convert-lambda lam2 '|#anon| #t '())))
@@ -3317,7 +3339,7 @@ f(x) = yt(x)
                             ,@top-stmts
                             (block ,@sp-inits
                                    (method ,name ,(cl-convert sig fname lam namemap toplevel interp)
-                                           ,(julia-expand-macros `(quote ,newlam))
+                                           ,(julia-bq-macro newlam)
                                            ,(last e)))))))
                  ;; local case - lift to a new type at top level
                  (let* ((exists (get namemap name #f))
@@ -3431,15 +3453,15 @@ f(x) = yt(x)
           ((lambda)  ;; happens inside (thunk ...) and generated function bodies
            (for-each (lambda (vi) (vinfo:set-asgn! vi #t))
                      (list-tail (car (lam:vinfo e)) (length (lam:args e))))
-           `(lambda ,(cadr e)
-              (,(clear-capture-bits (car (lam:vinfo e)))
-               () ,@(cddr (lam:vinfo e)))
-              (block
-               ,@(map-cl-convert (cdr (lam:body e)) 'anon
+           (let ((body (map-cl-convert (cdr (lam:body e)) 'anon
                                  (lambda-optimize-vars! e)
                                  (table)
                                  (null? (cadr e)) ;; only toplevel thunks have 0 args
-                                 interp))))
+                                 interp)))
+             `(lambda ,(cadr e)
+                (,(clear-capture-bits (car (lam:vinfo e)))
+                 () ,@(cddr (lam:vinfo e)))
+                (block ,@body))))
           ;; remaining `::` expressions are type assertions
           ((|::|)
            (cl-convert `(call (core typeassert) ,@(cdr e)) fname lam namemap toplevel interp))
@@ -3869,8 +3891,13 @@ f(x) = yt(x)
              (if tail (emit-return '(null)))
              '(null))
 
+            ((gc_preserve_begin)
+              (let ((s (make-ssavalue)))
+                (emit `(= ,s ,e))
+                s))
+
             ;; other top level expressions and metadata
-            ((import importall using export line meta inbounds boundscheck simdloop)
+            ((import importall using export line meta inbounds boundscheck simdloop gc_preserve_end)
              (let ((have-ret? (and (pair? code) (pair? (car code)) (eq? (caar code) 'return))))
                (cond ((eq? (car e) 'line)
                       (set! current-loc e)
@@ -4076,4 +4103,4 @@ f(x) = yt(x)
 (define (julia-expand ex)
   (julia-expand1
    (julia-expand0
-    (julia-expand-macros ex))))
+     julia-expand-macroscope ex)))

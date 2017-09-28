@@ -63,6 +63,8 @@ const NF = NotFound()
 const LineNum = Int
 const VarTable = Array{Any,1}
 
+const isleaftype = _isleaftype
+
 # The type of a variable load is either a value or an UndefVarError
 mutable struct VarState
     typ
@@ -843,7 +845,7 @@ function limit_type_depth(@nospecialize(t), d::Int, cov::Bool, vars::Vector{Type
             end
             ub = Any
         else
-            ub = limit_type_depth(v.ub, d - 1, true)
+            ub = limit_type_depth(v.ub, d - 1, cov, vars)
         end
         if v.lb === Bottom || type_depth(v.lb) > d
             # note: lower bounds need to be widened by making them lower
@@ -861,7 +863,8 @@ function limit_type_depth(@nospecialize(t), d::Int, cov::Bool, vars::Vector{Type
     if d < 0
         if isvarargtype(t)
             # never replace Vararg with non-Vararg
-            return Vararg{limit_type_depth(P[1], d, cov, vars), P[2]}
+            # passing depth=0 avoids putting a bare typevar here, for the diagonal rule
+            return Vararg{limit_type_depth(P[1], 0, cov, vars), P[2]}
         end
         widert = t.name.wrapper
         if !(t <: widert)
@@ -876,7 +879,11 @@ function limit_type_depth(@nospecialize(t), d::Int, cov::Bool, vars::Vector{Type
         return var
     end
     stillcov = cov && (t.name === Tuple.name)
-    Q = map(x -> limit_type_depth(x, d - 1, stillcov, vars), P)
+    newdepth = d - 1
+    if isvarargtype(t)
+        newdepth = max(newdepth, 0)
+    end
+    Q = map(x -> limit_type_depth(x, newdepth, stillcov, vars), P)
     R = t.name.wrapper{Q...}
     if cov && !stillcov
         for var in vars
@@ -2445,15 +2452,13 @@ function abstract_eval(@nospecialize(e), vtypes::VarTable, sv::InferenceState)
         t = Any
         if 1 <= n <= length(sv.sp)
             val = sv.sp[n]
-            if isa(val, TypeVar) && Any <: val.ub
-                # static param bound to typevar
-                # if the tvar is not known to refer to anything more specific than Any,
-                # the static param might actually be an integer, symbol, etc.
-            elseif has_free_typevars(val)
-                vs = ccall(:jl_find_free_typevars, Any, (Any,), val)
-                t = Type{val}
-                for v in vs
-                    t = UnionAll(v, t)
+            if isa(val, TypeVar)
+                if Any <: val.ub
+                    # static param bound to typevar
+                    # if the tvar is not known to refer to anything more specific than Any,
+                    # the static param might actually be an integer, symbol, etc.
+                else
+                    t = UnionAll(val, Type{val})
                 end
             else
                 t = abstract_eval_constant(val)
@@ -4400,8 +4405,7 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
     @assert na == length(argexprs)
 
     for i = 1:length(methsp)
-        si = methsp[i]
-        isa(si, TypeVar) && return NF
+        isa(methsp[i], TypeVar) && return NF
     end
 
     # some gf have special tfunc, meaning they wouldn't have been inferred yet
@@ -4726,17 +4730,16 @@ plus_saturate(x, y) = max(x, y, x+y)
 # known return type
 isknowntype(T) = (T == Union{}) || isleaftype(T)
 
-statement_cost(::Any, src::CodeInfo, mod::Module, params::InferenceParams) = 0
-statement_cost(qn::QuoteNode, src::CodeInfo, mod::Module, params::InferenceParams) =
-    statement_cost(qn.value, src, mod, params)
-function statement_cost(ex::Expr, src::CodeInfo, mod::Module, params::InferenceParams)
+function statement_cost(ex::Expr, line::Int, src::CodeInfo, mod::Module, params::InferenceParams)
     head = ex.head
     if is_meta_expr(ex) || head == :copyast # not sure if copyast is right
         return 0
     end
     argcost = 0
     for a in ex.args
-        argcost = plus_saturate(argcost, statement_cost(a, src, mod, params))
+        if a isa Expr
+            argcost = plus_saturate(argcost, statement_cost(a, line, src, mod, params))
+        end
     end
     if head == :return || head == :(=)
         return argcost
@@ -4788,10 +4791,20 @@ function statement_cost(ex::Expr, src::CodeInfo, mod::Module, params::InferenceP
         return ex.typ == Union{} ? 0 : plus_saturate(20, argcost)
     elseif head == :llvmcall
         return plus_saturate(10, argcost) # a wild guess at typical cost
-    elseif (head == :&)
-        return plus_saturate(length(ex.args), argcost)
+    elseif head == :enter
+        # try/catch is a couple function calls,
+        # but don't inline functions with try/catch
+        # since these aren't usually performance-sensitive functions,
+        # and llvm is more likely to miscompile them when these functions get large
+        return typemax(Int)
+    elseif head == :gotoifnot
+        target = ex.args[2]::Int
+        # loops are generally always expensive
+        # but assume that forward jumps are already counted for from
+        # summing the cost of the not-taken branch
+        return target < line ? plus_saturate(40, argcost) : argcost
     end
-    argcost
+    return argcost
 end
 
 function inline_worthy(body::Array{Any,1}, src::CodeInfo, mod::Module,
@@ -4800,23 +4813,33 @@ function inline_worthy(body::Array{Any,1}, src::CodeInfo, mod::Module,
     bodycost = 0
     for line = 1:length(body)
         stmt = body[line]
-        thiscost = statement_cost(stmt, src, mod, params)
+        if stmt isa Expr
+            thiscost = statement_cost(stmt, line, src, mod, params)::Int
+        elseif stmt isa GotoNode
+            # loops are generally always expensive
+            # but assume that forward jumps are already counted for from
+            # summing the cost of the not-taken branch
+            thiscost = stmt.label < line ? 40 : 0
+        else
+            continue
+        end
         bodycost = plus_saturate(bodycost, thiscost)
+        bodycost == typemax(Int) && return false
     end
-    bodycost <= cost_threshold
+    return bodycost <= cost_threshold
 end
 
 function inline_worthy(body::Expr, src::CodeInfo, mod::Module, params::InferenceParams,
                        cost_threshold::Integer=params.inline_cost_threshold)
-    bodycost = statement_cost(body, src, mod, params)
-    bodycost <= cost_threshold
+    bodycost = statement_cost(body, typemax(Int), src, mod, params)
+    return bodycost <= cost_threshold
 end
 
 function inline_worthy(@nospecialize(body), src::CodeInfo, mod::Module, params::InferenceParams,
                        cost_threshold::Integer=params.inline_cost_threshold)
     newbody = exprtype(body, src, mod)
     !isa(newbody, Expr) && return true
-    inline_worthy(newbody, src, mod, params, cost_threshold)
+    return inline_worthy(newbody, src, mod, params, cost_threshold)
 end
 
 ssavalue_increment(@nospecialize(body), incr) = body

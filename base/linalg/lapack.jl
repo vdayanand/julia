@@ -2559,8 +2559,10 @@ for (orglq, orgqr, orgql, orgrq, ormlq, ormqr, ormql, ormrq, gemqrt, elty) in
         #       DOUBLE PRECISION   A( LDA, * ), TAU( * ), WORK( * )
         function orgrq!(A::StridedMatrix{$elty}, tau::StridedVector{$elty}, k::Integer = length(tau))
             chkstride1(A,tau)
-            m = size(A, 1)
-            n = min(m, size(A, 2))
+            m, n = size(A)
+            if n < m
+                throw(DimensionMismatch("input matrix A has dimensions ($m,$n), but cannot have fewer columns than rows"))
+            end
             if k > n
                 throw(DimensionMismatch("invalid number of reflectors: k = $k should be <= n = $n"))
             end
@@ -2580,11 +2582,7 @@ for (orglq, orgqr, orgql, orgrq, ormlq, ormqr, ormql, ormrq, gemqrt, elty) in
                     resize!(work, lwork)
                 end
             end
-            if n < size(A,2)
-                A[:,1:n]
-            else
-                A
-            end
+            A
         end
 
         #      SUBROUTINE DORMLQ( SIDE, TRANS, M, N, K, A, LDA, TAU, C, LDC,
@@ -2600,13 +2598,13 @@ for (orglq, orgqr, orgql, orgrq, ormlq, ormqr, ormql, ormrq, gemqrt, elty) in
             chkside(side)
             chkstride1(A, C, tau)
             m,n = ndims(C) == 2 ? size(C) : (size(C, 1), 1)
-            mA, nA  = size(A)
+            nA = size(A, 2)
             k   = length(tau)
             if side == 'L' && m != nA
                 throw(DimensionMismatch("for a left-sided multiplication, the first dimension of C, $m, must equal the second dimension of A, $nA"))
             end
-            if side == 'R' && n != mA
-                throw(DimensionMismatch("for a right-sided multiplication, the second dimension of C, $n, must equal the first dimension of A, $mA"))
+            if side == 'R' && n != nA
+                throw(DimensionMismatch("for a right-sided multiplication, the second dimension of C, $n, must equal the second dimension of A, $nA"))
             end
             if side == 'L' && k > m
                 throw(DimensionMismatch("invalid number of reflectors: k = $k should be <= m = $m"))
@@ -5797,7 +5795,7 @@ for (trexc, trsen, tgsen, elty) in
         #       LOGICAL            SELECT( * )
         #       INTEGER            IWORK( * )
         #       DOUBLE PRECISION   Q( LDQ, * ), T( LDT, * ), WI( * ), WORK( * ), WR( * )
-        function trsen!(compq::Char, job::Char, select::StridedVector{BlasInt},
+        function trsen!(job::Char, compq::Char, select::StridedVector{BlasInt},
                         T::StridedMatrix{$elty}, Q::StridedMatrix{$elty})
             chkstride1(T, Q, select)
             n = checksquare(T)
@@ -5812,16 +5810,18 @@ for (trexc, trsen, tgsen, elty) in
             liwork = BlasInt(-1)
             info = Ref{BlasInt}()
             select = convert(Array{BlasInt}, select)
+            s = Ref{$elty}(zero($elty))
+            sep = Ref{$elty}(zero($elty))
             for i = 1:2  # first call returns lwork as work[1] and liwork as iwork[1]
                 ccall((@blasfunc($trsen), liblapack), Void,
                     (Ref{UInt8}, Ref{UInt8}, Ptr{BlasInt}, Ref{BlasInt},
                     Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt},
-                    Ptr{$elty}, Ptr{$elty}, Ref{BlasInt}, Ptr{Void}, Ptr{Void},
+                    Ptr{$elty}, Ptr{$elty}, Ref{BlasInt}, Ref{$elty}, Ref{$elty},
                     Ptr{$elty}, Ref{BlasInt}, Ptr{BlasInt}, Ref{BlasInt},
                     Ptr{BlasInt}),
-                    compq, job, select, n,
+                    job, compq, select, n,
                     T, ldt, Q, ldq,
-                    wr, wi, m, C_NULL, C_NULL,
+                    wr, wi, m, s, sep,
                     work, lwork, iwork, liwork,
                     info)
                 chklapackerror(info[])
@@ -5832,7 +5832,7 @@ for (trexc, trsen, tgsen, elty) in
                     resize!(iwork, liwork)
                 end
             end
-            T, Q, iszero(wi) ? wr : complex.(wr, wi)
+            T, Q, iszero(wi) ? wr : complex.(wr, wi), s[], sep[]
         end
         trsen!(select::StridedVector{BlasInt}, T::StridedMatrix{$elty}, Q::StridedMatrix{$elty}) =
             trsen!('N', 'V', select, T, Q)
@@ -5906,9 +5906,9 @@ for (trexc, trsen, tgsen, elty) in
     end
 end
 
-for (trexc, trsen, tgsen, elty) in
-    ((:ztrexc_, :ztrsen_, :ztgsen_, :Complex128),
-     (:ctrexc_, :ctrsen_, :ctgsen_, :Complex64))
+for (trexc, trsen, tgsen, elty, relty) in
+    ((:ztrexc_, :ztrsen_, :ztgsen_, :Complex128, :Float64),
+     (:ctrexc_, :ctrsen_, :ctgsen_, :Complex64, :Float32))
     @eval begin
         #      .. Scalar Arguments ..
         #      CHARACTER          COMPQ
@@ -5945,7 +5945,7 @@ for (trexc, trsen, tgsen, elty) in
         #      .. Array Arguments ..
         #      LOGICAL            SELECT( * )
         #      COMPLEX            Q( LDQ, * ), T( LDT, * ), W( * ), WORK( * )
-        function trsen!(compq::Char, job::Char, select::StridedVector{BlasInt},
+        function trsen!(job::Char, compq::Char, select::StridedVector{BlasInt},
                         T::StridedMatrix{$elty}, Q::StridedMatrix{$elty})
             chkstride1(select, T, Q)
             n = checksquare(T)
@@ -5957,16 +5957,18 @@ for (trexc, trsen, tgsen, elty) in
             lwork = BlasInt(-1)
             info = Ref{BlasInt}()
             select = convert(Array{BlasInt}, select)
+            s = Ref{$relty}(zero($relty))
+            sep = Ref{$relty}(zero($relty))
             for i = 1:2  # first call returns lwork as work[1]
                 ccall((@blasfunc($trsen), liblapack), Void,
                     (Ref{UInt8}, Ref{UInt8}, Ptr{BlasInt}, Ref{BlasInt},
                     Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt},
-                    Ptr{$elty}, Ref{BlasInt}, Ptr{Void}, Ptr{Void},
+                    Ptr{$elty}, Ref{BlasInt}, Ref{$relty}, Ref{$relty},
                     Ptr{$elty}, Ref{BlasInt},
                     Ptr{BlasInt}),
-                    compq, job, select, n,
+                    job, compq, select, n,
                     T, ldt, Q, ldq,
-                    w, m, C_NULL, C_NULL,
+                    w, m, s, sep,
                     work, lwork,
                     info)
                 chklapackerror(info[])
@@ -5975,7 +5977,7 @@ for (trexc, trsen, tgsen, elty) in
                     resize!(work, lwork)
                 end
             end
-            T, Q, w
+            T, Q, w, s[], sep[]
         end
         trsen!(select::StridedVector{BlasInt}, T::StridedMatrix{$elty}, Q::StridedMatrix{$elty}) =
             trsen!('N', 'V', select, T, Q)
@@ -6058,7 +6060,7 @@ and `ilst` specify the reordering of the vectors.
 trexc!(compq::Char, ifst::BlasInt, ilst::BlasInt, T::StridedMatrix, Q::StridedMatrix)
 
 """
-    trsen!(compq, job, select, T, Q) -> (T, Q, w)
+    trsen!(compq, job, select, T, Q) -> (T, Q, w, s, sep)
 
 Reorder the Schur factorization of a matrix and optionally finds reciprocal
 condition numbers. If `job = N`, no condition numbers are found. If `job = E`,
@@ -6069,7 +6071,9 @@ found. If `compq = V` the Schur vectors `Q` are updated. If `compq = N`
 the Schur vectors are not modified. `select` determines which
 eigenvalues are in the cluster.
 
-Returns `T`, `Q`, and reordered eigenvalues in `w`.
+Returns `T`, `Q`, reordered eigenvalues in `w`, the condition number of the
+cluster of eigenvalues `s`, and the condition number of the invariant subspace
+`sep`.
 """
 trsen!(compq::Char, job::Char, select::StridedVector{BlasInt}, T::StridedMatrix, Q::StridedMatrix)
 

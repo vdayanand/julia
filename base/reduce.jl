@@ -60,8 +60,10 @@ mapfoldl(f, op, v0, itr) = mapfoldl_impl(f, op, v0, itr, start(itr))
 """
     mapfoldl(f, op, itr)
 
-Like `mapfoldl(f, op, v0, itr)`, but using the first element of `itr` as `v0`. In general,
-this cannot be used with empty collections (see `reduce(op, itr)`).
+Like `mapfoldl(f, op, v0, itr)`, but using the first element of `itr` to generate `v0`.
+Specifically, `mapfoldl(f, op, itr)` produces the same result as
+`mapfoldl(f, op, f(first(itr)), drop(itr, 1))`.
+In general, this cannot be used with empty collections (see [`reduce(op, itr)`](@ref)).
 """
 function mapfoldl(f, op, itr)
     i = start(itr)
@@ -90,7 +92,7 @@ foldl(op, v0, itr) = mapfoldl(identity, op, v0, itr)
     foldl(op, itr)
 
 Like `foldl(op, v0, itr)`, but using the first element of `itr` as `v0`. In general, this
-cannot be used with empty collections (see `reduce(op, itr)`).
+cannot be used with empty collections (see [`reduce(op, itr)`](@ref)).
 
 ```jldoctest
 julia> foldl(-, 2:5)
@@ -128,8 +130,10 @@ mapfoldr(f, op, v0, itr) = mapfoldr_impl(f, op, v0, itr, endof(itr))
 """
     mapfoldr(f, op, itr)
 
-Like `mapfoldr(f, op, v0, itr)`, but using the first element of `itr` as `v0`. In general,
-this cannot be used with empty collections (see `reduce(op, itr)`).
+Like `mapfoldr(f, op, v0, itr)`, but using the first element of `itr` to generate `v0`.
+Specifically, `mapfoldr(f, op, itr)` produces the same result as
+`mapfoldr(f, op, f(last(itr)), take(itr, length(itr)-1))`.
+In general, this cannot be used with empty collections (see [`reduce(op, itr)`](@ref)).
 """
 function mapfoldr(f, op, itr)
     i = endof(itr)
@@ -156,7 +160,7 @@ foldr(op, v0, itr) = mapfoldr(identity, op, v0, itr)
     foldr(op, itr)
 
 Like `foldr(op, v0, itr)`, but using the last element of `itr` as `v0`. In general, this
-cannot be used with empty collections (see `reduce(op, itr)`).
+cannot be used with empty collections (see [`reduce(op, itr)`](@ref)).
 
 ```jldoctest
 julia> foldr(-, 2:5)
@@ -472,7 +476,7 @@ minimum(a) = mapreduce(identity, scalarmin, a)
 
 ## extrema
 
-extrema(r::Range) = (minimum(r), maximum(r))
+extrema(r::AbstractRange) = (minimum(r), maximum(r))
 extrema(x::Real) = (x, x)
 
 """
@@ -636,38 +640,6 @@ const ∈ = in
 ∉(x, itr)=!∈(x, itr)
 ∋(itr, x)= ∈(x, itr)
 ∌(itr, x)=!∋(itr, x)
-
-"""
-    contains(fun, itr, x) -> Bool
-
-Returns `true` if there is at least one element `y` in `itr` such that `fun(y,x)` is `true`.
-
-```jldoctest
-julia> vec = [10, 100, 200]
-3-element Array{Int64,1}:
-  10
- 100
- 200
-
-julia> contains(==, vec, 200)
-true
-
-julia> contains(==, vec, 300)
-false
-
-julia> contains(>, vec, 100)
-true
-
-julia> contains(>, vec, 200)
-false
-```
-"""
-function contains(eq::Function, itr, x)
-    for y in itr
-        eq(y, x) && return true
-    end
-    return false
-end
 
 
 ## count

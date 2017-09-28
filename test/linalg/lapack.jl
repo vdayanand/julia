@@ -316,6 +316,15 @@ end
         @test_throws DimensionMismatch LAPACK.ormrq!('R','N',A,zeros(elty,11),rand(elty,10,10))
         @test_throws DimensionMismatch LAPACK.ormrq!('L','N',A,zeros(elty,11),rand(elty,10,10))
 
+        A = rand(elty,10,11)
+        Q = copy(A)
+        Q,tau = LAPACK.gerqf!(Q)
+        R = triu(Q[:,2:11])
+        LAPACK.orgrq!(Q,tau)
+        @test Q*Q' ≈ eye(elty,10)
+        @test R*Q ≈ A
+        @test_throws DimensionMismatch LAPACK.orgrq!(zeros(elty,11,10),zeros(elty,10))
+
         C = rand(elty,10,10)
         V = rand(elty,10,10)
         T = zeros(elty,10,11)
@@ -555,22 +564,34 @@ end
     end
 end
 
-@testset "trexc" begin
+@testset "trsen" begin
     @testset for elty in (Float32, Float64, Complex64, Complex128)
-        for c in ('V', 'N')
-            A = convert(Matrix{elty}, [7 2 2 1; 1 5 2 0; 0 3 9 4; 1 1 1 4])
-            T,Q,d = schur(A)
-            Base.LinAlg.LAPACK.trsen!('N',c,Array{LinAlg.BlasInt}([0,1,0,0]),T,Q)
-            @test d[1] ≈ T[2,2]
-            @test d[2] ≈ T[1,1]
-            if c == 'V'
-                @test  Q*T*Q' ≈ A
+        for job in ('N', 'E', 'V', 'B')
+            for c in ('V', 'N')
+                A = convert(Matrix{elty}, [7 2 2 1; 1 5 2 0; 0 3 9 4; 1 1 1 4])
+                T,Q,d = schur(A)
+                s, sep = Base.LinAlg.LAPACK.trsen!(job,c,Array{LinAlg.BlasInt}([0,1,0,0]),T,Q)[4:5]
+                @test d[1] ≈ T[2,2]
+                @test d[2] ≈ T[1,1]
+                if c == 'V'
+                    @test  Q*T*Q' ≈ A
+                end
+                if job == 'N' || job == 'V'
+                    @test iszero(s)
+                else
+                    @test s ≈ 0.8080423 atol=1e-6
+                end
+                if job == 'N' || job == 'E'
+                    @test iszero(sep)
+                else
+                    @test sep ≈ 2. atol=3e-1
+                end
             end
         end
     end
 end
 
-@testset "trexc and trsen" begin
+@testset "trexc" begin
     @testset for elty in (Float32, Float64, Complex64, Complex128)
         for c in ('V', 'N')
             A = convert(Matrix{elty}, [7 2 2 1; 1 5 2 0; 0 3 9 4; 1 1 1 4])

@@ -11,6 +11,11 @@ New language features
     a function argument name, the argument is unpacked into local variables `x` and `y`
     as in the assignment `(x, y) = arg` ([#6614]).
 
+ * Custom infix operators can now be defined by appending Unicode
+   combining marks, primes, and sub/superscripts to other operators.
+   For example, `+̂ₐ″` is parsed as an infix operator with the same
+   precedence as `+` ([#22089]).
+
 Language changes
 ----------------
 
@@ -99,6 +104,9 @@ Breaking changes
 ----------------
 
 This section lists changes that do not have deprecation warnings.
+
+  * `getindex(s::String, r::UnitRange{Int})` now throws `UnicodeError` if `last(r)`
+    is not a valid index into `s` ([#22572]).
 
   * `ntuple(f, n::Integer)` throws `ArgumentError` if `n` is negative.
     Previously an empty tuple was returned ([#21697]).
@@ -202,10 +210,30 @@ This section lists changes that do not have deprecation warnings.
     They now return `CartesianIndex`es for all but 1-d arrays, and in general return
     the `keys` of indexed collections (e.g. dictionaries) ([#22907]).
 
+  * The `openspecfun` library is no longer built and shipped with Julia, as it is no longer
+    used internally ([#22390]).
+
+  * All loaded packges used to have bindings in `Main` (e.g. `Main.Package`). This is no
+    longer the case; now bindings will only exist for packages brought into scope by
+    typing `using Package` or `import Package` ([#17997]).
+
+  * `slicedim(b::BitVector, 1, x)` now consistently returns the same thing that `b[x]` would,
+    consistent with its documentation. Previously it would return a `BitArray{0}` for scalar
+    `x` ([#20233]).
+
+  * The rules for mixed-signedness integer arithmetic (e.g. `Int32(1) + UInt64(1)`) have been
+    simplified: if the arguments have different sizes (in bits), then the type of the larger
+    argument is used. If the arguments have the same size, the unsigned type is used ([#9292]).
+
+  * All command line arguments passed via `-e`, `-E`, and `-L` will be executed in the order
+    given on the command line ([#23665]).
+
 Library improvements
 --------------------
 
   * The functions `strip`, `lstrip` and `rstrip` now return `SubString` ([#22496]).
+
+  * The functions `strwidth` and `charwidth` have been merged into `textwidth`([#20816]).
 
   * The functions `base` and `digits` digits now accept a negative
     base (like `ndigits` did) ([#21692]).
@@ -279,7 +307,18 @@ Deprecated or removed
   * The keyword `immutable` is fully deprecated to `struct`, and
     `type` is fully deprecated to `mutable struct` ([#19157], [#20418]).
 
+  * Indexing into multidimensional arrays with more than one index but fewer indices than there are
+    dimensions is no longer permitted when those trailing dimensions have lengths greater than 1.
+    Instead, reshape the array or add trailing indices so the dimensionality and number of indices
+    match ([#14770], [#23628]).
+
+  * `writecsv(io, a; opts...)` has been deprecated in favor of
+    `writedlm(io, a, ','; opts...)` ([#23529]).
+
   * The method `srand(rng, filename, n=4)` has been deprecated ([#21359]).
+
+  * `readcsv(io[, T::Type]; opts...)` has been deprecated in favor of
+    `readdlm(io, ','[, T]; opts...)` ([#23530]).
 
   * The `cholfact`/`cholfact!` methods that accepted an `uplo` symbol have been deprecated
     in favor of using `Hermitian` (or `Symmetric`) views ([#22187], [#22188]).
@@ -420,6 +459,31 @@ Deprecated or removed
   * `select`, `select!`, `selectperm` and `selectperm!` have been renamed respectively to
     `partialsort`, `partialsort!`, `partialsortperm` and `partialsortperm!` ([#23051]).
 
+  * The `Range` abstract type has been renamed to `AbstractRange` ([#23570]).
+
+  * `map` on dictionaries previously operated on `key=>value` pairs. This behavior is deprecated,
+    and in the future `map` will operate only on values ([#5794]).
+
+  * Automatically broadcasted `+` and `-` for `array + scalar`, `scalar - array`, and so-on have
+    been deprecated due to inconsistency with linear algebra. Use `.+` and `.-` for these operations
+    instead.
+
+  * `isleaftype` is deprecated in favor of a simpler predicate `isconcrete`. Concrete types are
+    those that might equal `typeof(x)` for some `x`; `isleaftype` includes some types for which
+    this is not true. If you are certain you need the old behavior, it is temporarily available
+    as `Base._isleaftype` ([#17086]).
+
+  * `contains(eq, itr, item)` is deprecated in favor of `any` with a predicate ([#23716]).
+
+  * Constructors for `LibGit2.UserPasswordCredentials` and `LibGit2.SSHCredentials` which take a
+    `prompt_if_incorrect` argument are deprecated. Instead, prompting behavior is controlled using
+    the `allow_prompt` keyword in the `LibGit2.CredentialPayload` constructor ([#23690]).
+
+  * `gradient` is deprecated and will be removed in the next release ([#23816]).
+
+  * The timing functions `tic`, `toc`, and `toq` are deprecated in favor of `@time` and `@elapsed`
+    ([#17046]).
+
 Command-line option changes
 ---------------------------
 
@@ -430,6 +494,10 @@ Command-line option changes
     startup banner, overriding the default behavior (banner in REPL, no banner otherwise).
     The `--quiet` option implies `--banner=no` even in REPL mode but can be overridden by
     passing `--quiet` together with `--banner=yes` ([#23342]).
+
+  * The option `--precompiled` has been renamed to `--sysimage-native-code` ([#23054]).
+
+  * The option `--compilecache` has been renamed to `--compiled-modules` ([#23054]).
 
 Julia v0.6.0 Release Notes
 ==========================
@@ -1257,6 +1325,7 @@ Command-line option changes
 [#22310]: https://github.com/JuliaLang/julia/issues/22310
 [#22325]: https://github.com/JuliaLang/julia/issues/22325
 [#22350]: https://github.com/JuliaLang/julia/issues/22350
+[#22390]: https://github.com/JuliaLang/julia/issues/22390
 [#22496]: https://github.com/JuliaLang/julia/issues/22496
 [#22523]: https://github.com/JuliaLang/julia/issues/22523
 [#22532]: https://github.com/JuliaLang/julia/issues/22532

@@ -8,7 +8,7 @@
 The objects called do not have matching dimensionality. Optional argument `msg` is a
 descriptive error string.
 """
-mutable struct DimensionMismatch <: Exception
+struct DimensionMismatch <: Exception
     msg::AbstractString
 end
 DimensionMismatch() = DimensionMismatch("")
@@ -30,7 +30,7 @@ elements of type `T`. Alias for [`AbstractArray{T,2}`](@ref).
 """
 const AbstractMatrix{T} = AbstractArray{T,2}
 const AbstractVecOrMat{T} = Union{AbstractVector{T}, AbstractMatrix{T}}
-const RangeIndex = Union{Int, Range{Int}, AbstractUnitRange{Int}}
+const RangeIndex = Union{Int, AbstractRange{Int}, AbstractUnitRange{Int}}
 const DimOrInd = Union{Integer, AbstractUnitRange}
 const IntOrInd = Union{Int, AbstractUnitRange}
 const DimsOrInds{N} = NTuple{N,DimOrInd}
@@ -441,16 +441,16 @@ See also [`zeros`](@ref), [`similar`](@ref).
 """
 function ones end
 
-for (fname, felt) in ((:zeros,:zero), (:ones,:one))
+for (fname, felt) in ((:zeros, :zero), (:ones, :one))
     @eval begin
         # allow signature of similar
-        $fname(a::AbstractArray, T::Type, dims::Tuple) = fill!(similar(a, T, dims), $felt(T))
-        $fname(a::AbstractArray, T::Type, dims...) = fill!(similar(a,T,dims...), $felt(T))
-        $fname(a::AbstractArray, T::Type=eltype(a)) = fill!(similar(a,T), $felt(T))
+        $fname(a::AbstractArray, ::Type{T}, dims::Tuple) where {T} = fill!(similar(a, T, dims), $felt(T))
+        $fname(a::AbstractArray, ::Type{T}, dims...) where {T} = fill!(similar(a, T, dims...), $felt(T))
+        $fname(a::AbstractArray, ::Type{T}=eltype(a)) where {T} = fill!(similar(a, T), $felt(T))
 
-        $fname(T::Type, dims::Tuple) = fill!(Array{T}(Dims(dims)), $felt(T))
+        $fname(::Type{T}, dims::NTuple{N, Any}) where {T, N} = fill!(Array{T,N}(Dims(dims)), $felt(T))
         $fname(dims::Tuple) = ($fname)(Float64, dims)
-        $fname(T::Type, dims...) = $fname(T, dims)
+        $fname(::Type{T}, dims...) where {T} = $fname(T, dims)
         $fname(dims...) = $fname(dims)
     end
 end
@@ -550,6 +550,9 @@ one(x::AbstractMatrix{T}) where {T} = _one(one(T), x)
 oneunit(x::AbstractMatrix{T}) where {T} = _one(oneunit(T), x)
 
 ## Conversions ##
+
+# arises in similar(dest, Pair{Union{},Union{}}) where dest::Dict:
+convert(::Type{Vector{Union{}}}, a::Vector{Union{}}) = a
 
 convert(::Type{Vector}, x::AbstractVector{T}) where {T} = convert(Vector{T}, x)
 convert(::Type{Matrix}, x::AbstractMatrix{T}) where {T} = convert(Matrix{T}, x)
@@ -789,7 +792,7 @@ function getindex(A::Array, c::Colon)
 end
 
 # This is redundant with the abstract fallbacks, but needed for bootstrap
-function getindex(A::Array{S}, I::Range{Int}) where S
+function getindex(A::Array{S}, I::AbstractRange{Int}) where S
     return S[ A[i] for i in I ]
 end
 
