@@ -64,6 +64,12 @@ const DenseVector{T} = DenseArray{T,1}
 const DenseMatrix{T} = DenseArray{T,2}
 const DenseVecOrMat{T} = Union{DenseVector{T}, DenseMatrix{T}}
 
+## More constructors
+Array{T,N}(inds::NTuple{N,<:OneTo}) where {T,N} = Array{T,N}(length.(inds))
+Array{T}(inds::NTuple{N,<:OneTo}) where {T,N} = Array{T,N}(inds)
+Array{T,N}(ind::OneTo, inds::Vararg{<:OneTo}) where {T,N} = Array{T,N}((ind, inds...))
+Array{T}(ind::OneTo, inds::Vararg{<:OneTo}) where T = Array{T}((ind, inds...))
+
 ## Basic functions ##
 
 """

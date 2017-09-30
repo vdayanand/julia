@@ -355,6 +355,8 @@ const NTuple{N,T} = Tuple{Vararg{T,N}}
 # primitive array constructors
 Array{T,N}(d::NTuple{N,Int}) where {T,N} =
     ccall(:jl_new_array, Array{T,N}, (Any, Any), Array{T,N}, d)
+Array{T,0}(::Tuple{}) where {T} =
+    ccall(:jl_new_array, Array{T,0}, (Any, Any), Array{T,0}, ())
 Array{T,1}(d::NTuple{1,Int}) where {T} = Array{T,1}(getfield(d,1))
 Array{T,2}(d::NTuple{2,Int}) where {T} = Array{T,2}(getfield(d,1), getfield(d,2))
 Array{T,3}(d::NTuple{3,Int}) where {T} = Array{T,3}(getfield(d,1), getfield(d,2), getfield(d,3))
@@ -366,6 +368,7 @@ Array{T,3}(m::Int, n::Int, o::Int) where {T} =
     ccall(:jl_alloc_array_3d, Array{T,3}, (Any, Int, Int, Int), Array{T,3}, m, n, o)
 
 Array{T}(d::NTuple{N,Int}) where {T,N} = Array{T,N}(d)
+Array{T}(::Tuple{}) where {T} = Array{T,0}(())
 Array{T}(m::Int) where {T} = Array{T,1}(m)
 Array{T}(m::Int, n::Int) where {T} = Array{T,2}(m, n)
 Array{T}(m::Int, n::Int, o::Int) where {T} = Array{T,3}(m, n, o)

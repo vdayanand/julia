@@ -327,6 +327,12 @@ end
         error("unexpected depwarn value")
     end
     @test_throws MethodError Array{Int,3}()
+
+    @test size(Array{Int}(Base.OneTo(3), Base.OneTo(2)))     == (3,2)
+    @test size(Array{Int}((Base.OneTo(3), Base.OneTo(2))))   == (3,2)
+    @test size(Array{Int,2}(Base.OneTo(3), Base.OneTo(2)))   == (3,2)
+    @test size(Array{Int,2}((Base.OneTo(3), Base.OneTo(2)))) == (3,2)
+    @test_throws MethodError Array{Int,3}((Base.OneTo(3), Base.OneTo(2)))
 end
 @testset "get" begin
     A = reshape(1:24, 3, 8)
