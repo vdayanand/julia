@@ -1867,6 +1867,18 @@ end
 # also remove deprecation warnings in find* functions in array.jl, sparse/sparsematrix.jl,
 # and sparse/sparsevector.jl.
 
+# Broadcast extension API (#23939)
+@eval Broadcast begin
+    Base.@deprecate_binding containertype combine_types false
+    Base.@deprecate_binding _containertype rule false
+    Base.@deprecate_binding promote_containertype rule false
+    Base.@deprecate_binding broadcast_indices combine_indices false
+    Base.@deprecate_binding broadcast_c! broadcast! false ", broadcast_c!(f, ::Type, ::Type, C, As...) should become broadcast!(f, C, As...)"
+    Base.@deprecate_binding broadcast_c broadcast false ", `broadcast_c(f, ::Type{C}, As...)` should become `broadcast(f, Broadcast.Result{C}(), As...))`"
+    Base.@deprecate_binding broadcast_t broadcast false ", broadcast_t(f, ::Type{ElType}, shape, iter, As...)` should become `broadcast(f, Result{BottomArray,ElType,<:Tuple}(shape), As...))`"
+end
+
+
 # END 0.7 deprecations
 
 # BEGIN 1.0 deprecations
