@@ -490,6 +490,7 @@ $(eval $(call LLVM_PATCH,llvm-D27629-AArch64-large_model_4.0))
 $(eval $(call LLVM_PATCH,llvm-loadcse-addrspace_5.0))
 $(eval $(call LLVM_PATCH,llvm-D34078-vectorize-fdiv))
 $(eval $(call LLVM_PATCH,llvm-4.0.0-D37576-NVPTX-sm_70)) # NVPTX, Remove for 6.0
+$(eval $(call LLVM_PATCH,llvm-arm-reset))
 endif # LLVM_VER
 
 $(LLVM_BUILDDIR_withtype)/build-configured: $(LLVM_PATCH_PREV)
