@@ -196,15 +196,17 @@ static void jl_gc_run_finalizers_in_list(jl_ptls_t ptls, arraylist_t *list)
     jl_array_t *bt = NULL;
     jl_array_t *bt2 = NULL;
     JL_GC_PUSH3(&exc, &bt, &bt2);
-    if (ptls->bt_size > 0)
+    if (ptls->bt_size > 0) {
         jl_get_backtrace(&bt, &bt2);
+        ptls->bt_size = 0;
+    }
     for (size_t i = 2;i < len;i += 2)
         run_finalizer(ptls, items[i], items[i + 1]);
     ptls->exception_in_transit = exc;
     if (bt != NULL) {
         // This is sufficient because bt2 roots the managed values
-        ptls->bt_size = jl_array_len(bt);
         memcpy(ptls->bt_data, bt->data, ptls->bt_size * sizeof(void*));
+        ptls->bt_size = jl_array_len(bt);
     }
     JL_GC_POP();
     // matches the jl_gc_push_arraylist above
