@@ -24,7 +24,8 @@ const VALID_EXPR_HEADS = ObjectIdDict(
     :isdefined => 1:1,
     :simdloop => 0:0,
     :gc_preserve_begin => 0:typemax(Int),
-    :gc_preserve_end => 0:typemax(Int)
+    :gc_preserve_end => 0:typemax(Int),
+    :thunk => 1:1
 )
 
 # @enum isn't defined yet, otherwise I'd use it for this
@@ -129,7 +130,7 @@ function validate_code!(errors::Vector{>:InvalidCodeError}, c::CodeInfo, is_top_
     nslotnames = length(c.slotnames)
     nslotflags = length(c.slotflags)
     nssavals = length(ssavals)
-    nslotnames == 0 && push!(errors, InvalidCodeError(EMPTY_SLOTNAMES))
+    !is_top_level && nslotnames == 0 && push!(errors, InvalidCodeError(EMPTY_SLOTNAMES))
     nslotnames != nslotflags && push!(errors, InvalidCodeError(SLOTFLAGS_MISMATCH, (nslotnames, nslotflags)))
     if c.inferred
         nslottypes = length(c.slottypes)
@@ -154,14 +155,20 @@ the `CodeInfo` instance associated with `mi`.
 """
 function validate_code!(errors::Vector{>:InvalidCodeError}, mi::Core.MethodInstance,
                         c::Union{Void,CodeInfo} = Core.Inference.retrieve_code_info(mi))
-    m = mi.def::Method
-    n_sig_params = length(Core.Inference.unwrap_unionall(m.sig).parameters)
-    if (m.isva ? (n_sig_params < (m.nargs - 1)) : (n_sig_params != m.nargs))
-        push!(errors, InvalidCodeError(SIGNATURE_NARGS_MISMATCH, (m.isva, n_sig_params, m.nargs)))
+    is_top_level = mi.def isa Module
+    if is_top_level
+        mnargs = 0
+    else
+        m = mi.def::Method
+        mnargs = m.nargs
+        n_sig_params = length(Core.Inference.unwrap_unionall(m.sig).parameters)
+        if (m.isva ? (n_sig_params < (mnargs - 1)) : (n_sig_params != mnargs))
+            push!(errors, InvalidCodeError(SIGNATURE_NARGS_MISMATCH, (m.isva, n_sig_params, mnargs)))
+        end
     end
     if isa(c, CodeInfo)
-        m.nargs > length(c.slotnames) && push!(errors, InvalidCodeError(SLOTNAMES_NARGS_MISMATCH))
-        validate_code!(errors, c, m.nargs == 0)
+        mnargs > length(c.slotnames) && push!(errors, InvalidCodeError(SLOTNAMES_NARGS_MISMATCH))
+        validate_code!(errors, c, is_top_level)
     end
     return errors
 end
@@ -185,7 +192,9 @@ end
 function is_valid_rvalue(lhs, x)
     is_valid_argument(x) && return true
     if isa(x, Expr) && x.head in (:new, :the_exception, :isdefined, :call, :invoke, :foreigncall, :gc_preserve_begin)
-        return isa(lhs, SSAValue) || isa(lhs, Slot)
+        return true
+        # TODO: disallow `globalref = call` when .typ field is removed
+        #return isa(lhs, SSAValue) || isa(lhs, Slot)
     end
     return false
 end

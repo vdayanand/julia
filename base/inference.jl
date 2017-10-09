@@ -287,21 +287,25 @@ mutable struct InferenceState
     end
 end
 
-function InferenceState(linfo::MethodInstance,
-                        optimize::Bool, cached::Bool, params::InferenceParams)
-    # prepare an InferenceState object for inferring lambda
-    src = retrieve_code_info(linfo)
-    src === nothing && return nothing
+function _validate(linfo::MethodInstance, src::CodeInfo, kind::String)
     if JLOptions().debug_level == 2
         # this is a debug build of julia, so let's validate linfo
         errors = validate_code(linfo, src)
         if !isempty(errors)
             for e in errors
-                println(STDERR, "WARNING: Encountered invalid lowered code for method ",
+                println(STDERR, "WARNING: Encountered invalid ", kind, " code for method ",
                         linfo.def, ": ", e)
             end
         end
     end
+end
+
+function InferenceState(linfo::MethodInstance,
+                        optimize::Bool, cached::Bool, params::InferenceParams)
+    # prepare an InferenceState object for inferring lambda
+    src = retrieve_code_info(linfo)
+    src === nothing && return nothing
+    _validate(linfo, src, "lowered")
     return InferenceState(linfo, src, optimize, cached, params)
 end
 
@@ -3480,6 +3484,7 @@ function optimize(me::InferenceState)
         me.src.inlineable = isinlineable(def, me.src, me.mod, me.params, bonus)
     end
     me.src.inferred = true
+    _validate(me.linfo, me.src, "optimized")
     nothing
 end
 
@@ -4151,9 +4156,10 @@ function invoke_NF(argexprs, @nospecialize(etype), atypes::Vector{Any}, sv::Infe
                         local match = splitunion(atypes, i - 1)
                         if match !== false
                             after = genlabel(sv)
+                            isa_var = newvar!(sv, Bool)
                             isa_ty = Expr(:call, GlobalRef(Core, :isa), aei, ty)
-                            isa_ty.typ = Bool
-                            unshift!(match, Expr(:gotoifnot, isa_ty, after.label))
+                            unshift!(match, Expr(:gotoifnot, isa_var, after.label))
+                            unshift!(match, Expr(:(=), isa_var, isa_ty))
                             append!(stmts, match)
                             push!(stmts, after)
                         else
@@ -4311,11 +4317,10 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
         if isa(e.typ, Const)
             return inline_as_constant(e.typ.val, argexprs, sv, nothing)
         end
-        not_is = Expr(:call, GlobalRef(Core.Intrinsics, :not_int),
-                             Expr(:call, GlobalRef(Core, :(===)), argexprs[2], argexprs[3]))
-        not_is.typ = Bool
-        not_is.args[2].typ = Bool
-        return (not_is, ())
+        is_var = newvar!(sv, Bool)
+        stmts = Any[ Expr(:(=), is_var, Expr(:call, GlobalRef(Core, :(===)), argexprs[2], argexprs[3])) ]
+        not_is = Expr(:call, GlobalRef(Core.Intrinsics, :not_int), is_var)
+        return (not_is, stmts)
     elseif length(atypes) == 3 && istopfunction(topmod, f, :(>:))
         # special-case inliner for issupertype
         # that works, even though inference generally avoids inferring the `>:` Method
@@ -4532,6 +4537,12 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
     stmts_free = true # true = all entries of stmts are effect_free
 
     argexprs = copy(argexprs)
+    if isva
+        # move constructed vararg tuple to an ssavalue
+        varargvar = newvar!(sv, atypes[na])
+        push!(prelude_stmts, Expr(:(=), varargvar, argexprs[na]))
+        argexprs[na] = varargvar
+    end
     for i = na:-1:1 # stmts_free needs to be calculated in reverse-argument order
         #args_i = args[i]
         aei = argexprs[i]
@@ -5165,7 +5176,12 @@ function inlining_pass(e::Expr, sv::InferenceState, stmts::Vector{Any}, ins, bou
                     else
                         tp = t.parameters
                     end
-                    newargs[i - 2] = Any[ mk_getfield(tmpv, j, tp[j]) for j in 1:(length(tp)::Int) ]
+                    ntp = length(tp)::Int
+                    fldvars = Any[ newvar!(sv, tp[j]) for j in 1:ntp ]
+                    for j = 1:ntp
+                        push!(newstmts, Expr(:(=), fldvars[j], mk_getfield(tmpv, j, tp[j])))
+                    end
+                    newargs[i - 2] = fldvars
                 else
                     # not all args expandable
                     return e
@@ -5309,7 +5325,7 @@ function get_replacement(table::ObjectIdDict, var::Union{SlotNumber, SSAValue}, 
         if isa(init.typ, DataType) && isleaftype(init.typ)
             return init
         end
-    elseif isa(init, corenumtype) || init === () || init === nothing
+    elseif isa(init, Number) || init === () || init === nothing || isa(init, Type) || isa(init, Char)
         return init
     elseif isa(init, Slot) && is_argument(nargs, init::Slot)
         # the transformation is not ideal if the assignment
@@ -5342,6 +5358,10 @@ function get_replacement(table::ObjectIdDict, var::Union{SlotNumber, SSAValue}, 
                 rep = TypedSlot(rep.id, init.typ)
             end
             return rep
+        end
+    elseif isa(init, GlobalRef)
+        if isdefined(init.mod, init.name) && isconst(init.mod, init.name)
+            return init
         end
     end
     return var
