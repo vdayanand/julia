@@ -1118,10 +1118,9 @@ Int64
 
 julia> @code_warntype f(1,2,3)
 Variables:
-  #self#::#f
-  a::Int64
+  a<optimized out>
   b::Int64
-  c::Int64
+  c<optimized out>
 
 Body:
   begin
