@@ -111,29 +111,77 @@ static_assert(sizeof(interpreter_state) <= 48, "Update assembly code above");
 
 size_t STACK_PADDING = 12;
 asm(
-    ASM_ENTRY
-    MANGLE("enter_interpreter_frame") ":\n"
-    ".cfi_startproc\n"
-    // sizeof(struct interpreter_state) is 32
-    "\tsubl $32, %esp\n"
-    ".cfi_def_cfa_offset 36\n"
-    "\tmovl %ecx, %eax\n"
-    "\tmovl %esp, %ecx\n"
-    // Zero out the src field
-    "\tmovl $0, (%esp)\n"
-    // Restore 16 byte stack alignment
-    "\tsubl $12, %esp\n"
-    ".cfi_def_cfa_offset 48\n"
-    "Lenter_interpreter_frame_start_val:\n"
-    "\tcalll *%eax\n"
-    "Lenter_interpreter_frame_end_val:\n"
-    "\taddl $44, %esp\n"
-    // Somehow this throws off compact unwind info on OS X
-    ".cfi_def_cfa_offset 4\n"
-    "\tret\n"
-    ".cfi_endproc\n"
-    ASM_END
-    );
+     ASM_ENTRY
+     MANGLE("enter_interpreter_frame") ":\n"
+     ".cfi_startproc\n"
+#ifdef _OS_WINDOWS_
+/*
+ * On win32, we set -mincoming-stack-boundary=2. This causes GCC to emit stack
+ * realignment gadgets into the prologue of every function. Unfortunately for
+ * us there are two different kinds of such gadgets and since we don't know
+ * which one the target function is going to use, we can't use the same trick
+ * as everywhere else. From https://gcc.gnu.org/ml/gcc/2007-12/msg00503.html,
+ * the two prologues are:
+ *
+ *     pushl     %ebp
+ *     movl      %esp, %ebp
+ *     andl      $-16, %esp
+ *
+ * and
+ *
+ *     pushl     %edi                     // Save callee save reg edi
+ *     leal      8(%esp), %edi            // Save address of parameter frame
+ *     andl      $-16, %esp               // Align local stack
+ *     pushl     $4(%edi)                 //  save return address
+ *     pushl     %ebp                     //  save old ebp
+ *     movl      %esp, %ebp               //  point ebp to pseudo frame
+ *
+ * From the perspective of the unwinder, the first case looks like a regular
+ * (without the realignment gadget) stack frame. However, for the second one,
+ * the compiler deliberately constructs a "fake stack frame" that has an
+ * incorrect stack address for the previous frame. To work around all of this,
+ * use ebp based addressing on win32
+ */
+#define FP_CAPTURE_OFFSET 32
+    "\tpushl %ebp\n"
+    ".cfi_def_cfa_offset 8\n"
+    "\tmovl %esp, %ebp\n"
+#endif
+     // sizeof(struct interpreter_state) is 32
+     "\tsubl $32, %esp\n"
+#ifdef _OS_WINDOWS_
+     ".cfi_def_cfa_offset 40\n"
+#else
+     ".cfi_def_cfa_offset 36\n"
+#endif
+     "\tmovl %ecx, %eax\n"
+     "\tmovl %esp, %ecx\n"
+     // Zero out the src field
+     "\tmovl $0, (%esp)\n"
+     // Restore 16 byte stack alignment
+#ifdef _OS_WINDOWS_
+     // Technically not necessary, because we don't assume this alignment, but
+     // let's be nice if we ever start doing that.
+     "\tsubl $8, %esp\n"
+#else
+     "\tsubl $12, %esp\n"
+#endif
+     ".cfi_def_cfa_offset 48\n"
+     "Lenter_interpreter_frame_start_val:\n"
+     "\tcalll *%eax\n"
+     "Lenter_interpreter_frame_end_val:\n"
+#ifdef _OS_WINDOWS_
+     "\taddl $40, %esp\n"
+     ".cfi_def_cfa_offset 8\n"
+     "\tpopl %ebp\n"
+#else
+     "\taddl $44, %esp\n"
+#endif
+     ".cfi_def_cfa_offset 4\n"
+     "\tret\n"
+     ".cfi_endproc\n"
+     ASM_END
+     );
 
 #define CALLBACK_ABI  __attribute__((fastcall))
 static_assert(sizeof(interpreter_state) <= 32, "Update assembly code above");
@@ -159,9 +207,13 @@ JL_DLLEXPORT int jl_is_enter_interpreter_frame(uintptr_t ip)
     return enter_interpreter_frame_start <= ip && ip <= enter_interpreter_frame_end;
 }
 
-JL_DLLEXPORT size_t jl_capture_interp_frame(uintptr_t *data, uintptr_t sp, size_t space_remaining)
+JL_DLLEXPORT size_t jl_capture_interp_frame(uintptr_t *data, uintptr_t sp, uintptr_t fp, size_t space_remaining)
 {
+#ifdef FP_CAPTURE_OFFSET
+    interpreter_state *s = (interpreter_state *)(fp-FP_CAPTURE_OFFSET);
+#else
     interpreter_state *s = (interpreter_state *)(sp+STACK_PADDING);
+#endif
     if (space_remaining <= 1 || s->src == 0)
         return 0;
     // Sentinel value to indicate an interpreter frame
@@ -183,10 +235,11 @@ JL_DLLEXPORT int jl_is_enter_interpreter_frame(uintptr_t ip)
     return 0;
 }
 
-JL_DLLEXPORT size_t jl_capture_interp_frame(uintptr_t *data, uintptr_t sp, size_t space_remaining)
+JL_DLLEXPORT size_t jl_capture_interp_frame(uintptr_t *data, uintptr_t sp, uintptr_t fp, size_t space_remaining)
 {
     return 0;
 }
+#define CALLBACK_ABI
 void *NOINLINE enter_interpreter_frame(void *(*callback)(interpreter_state *, void *), void *arg) {
     interpreter_state state = {};
     return callback(&state, arg);

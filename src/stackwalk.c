@@ -25,13 +25,14 @@ extern "C" {
 #endif
 
 static int jl_unw_init(bt_cursor_t *cursor, bt_context_t *context);
-static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp);
+static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, uintptr_t *fp);
 
 size_t jl_unw_stepn(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, size_t maxsize, int add_interp_frames)
 {
     jl_ptls_t ptls = jl_get_ptls_states();
     volatile size_t n = 0;
     uintptr_t thesp;
+    uintptr_t thefp;
 #if defined(_OS_WINDOWS_) && !defined(_CPU_X86_64_)
     assert(!jl_in_stackwalk);
     jl_in_stackwalk = 1;
@@ -47,12 +48,12 @@ size_t jl_unw_stepn(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, size_t ma
                n = maxsize; // return maxsize + 1 if ran out of space
                break;
            }
-           if (!jl_unw_step(cursor, &ip[n], &thesp))
+           if (!jl_unw_step(cursor, &ip[n], &thesp, &thefp))
                break;
            if (sp)
                 sp[n] = thesp;
             if (add_interp_frames && jl_is_enter_interpreter_frame(ip[n])) {
-                n += jl_capture_interp_frame(&ip[n], thesp, maxsize-n-1) + 1;
+                n += jl_capture_interp_frame(&ip[n], thesp, thefp, maxsize-n-1) + 1;
             } else {
                 n++;
             }
@@ -263,12 +264,14 @@ static int readable_pointer(LPCVOID pointer)
     return 1;
 }
 
-static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp)
+static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, uintptr_t *fp)
 {
     // Might be called from unmanaged thread.
 #ifndef _CPU_X86_64_
     *ip = (uintptr_t)cursor->stackframe.AddrPC.Offset;
     *sp = (uintptr_t)cursor->stackframe.AddrStack.Offset;
+    if (fp)
+        *fp = (uintptr_t)cursor->stackframe.AddrFrame.Offset;
     if (*ip == 0 || *ip == ((uintptr_t)0)-1) {
         if (!readable_pointer((LPCVOID)*sp))
             return 0;
@@ -283,6 +286,8 @@ static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp)
 #else
     *ip = (uintptr_t)cursor->Rip;
     *sp = (uintptr_t)cursor->Rsp;
+    if (fp)
+        *fp = (uintptr_t)cursor->Rbp;
     if (*ip == 0 || *ip == ((uintptr_t)0)-1) {
         if (!readable_pointer((LPCVOID)*sp))
             return 0;
@@ -331,7 +336,7 @@ static int jl_unw_init(bt_cursor_t *cursor, bt_context_t *context)
     return unw_init_local(cursor, context) == 0;
 }
 
-static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp)
+static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, uintptr_t *fp)
 {
     unw_word_t reg;
     if (unw_get_reg(cursor, UNW_REG_IP, &reg) < 0)
@@ -340,6 +345,15 @@ static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp)
     if (unw_get_reg(cursor, UNW_REG_SP, &reg) < 0)
         return 0;
     *sp = reg;
+#ifdef UNW_REG_FP
+    if (unw_get_reg(cursor, UNW_REG_FP, &reg) < 0)
+        return 0;
+    if (fp)
+        *fp = reg;
+#else
+    if (fp)
+        *fp = 0;
+#endif
     return unw_step(cursor) > 0;
 }
 
@@ -367,7 +381,7 @@ static int jl_unw_init(bt_cursor_t *cursor, bt_context_t *context)
     return 0;
 }
 
-static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp)
+static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, uintptr_t *fp)
 {
     return 0;
 }
