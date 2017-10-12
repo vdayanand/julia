@@ -290,9 +290,8 @@ end
 @test g22421_2(Ref(7), Ref(8), false) === 24
 
 if opt_level > 0
-    # Disable temporarily. Don't use `@test_broken` since these won't reliably fail either
-    # @test !contains(get_llvm(g22421_1, Tuple{Base.RefValue{Int},Base.RefValue{Int},Bool}),
-    #                 "%gcframe")
-    # @test !contains(get_llvm(g22421_2, Tuple{Base.RefValue{Int},Base.RefValue{Int},Bool}),
-    #                 "%gcframe")
+    @test !contains(get_llvm(g22421_1, Tuple{Base.RefValue{Int},Base.RefValue{Int},Bool}),
+                    "%gcframe")
+    @test !contains(get_llvm(g22421_2, Tuple{Base.RefValue{Int},Base.RefValue{Int},Bool}),
+                    "%gcframe")
 end
